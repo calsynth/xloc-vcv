@@ -1,0 +1,258 @@
+diff --git a/software/src/Audio/AudioEffectModalResonator.h b/software/src/Audio/AudioEffectModalResonator.h
+index ea92bb44..aa3fecd3 100644
+--- a/software/src/Audio/AudioEffectModalResonator.h
++++ b/software/src/Audio/AudioEffectModalResonator.h
+@@ -184,9 +184,11 @@ public:
+         }
+ 
+         // Enable FPU flush-to-zero + default-NaN
++#if defined (__ARM_ARCH_7EM__)
+         uint32_t fpscr_save;
+         __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr_save));
+         __asm__ volatile("vmsr fpscr, %0" :: "r"(fpscr_save | 0x03000000u));
++#endif
+ 
+         const int16_t* src = in ? in->data : nullptr;
+         int16_t*       dst = out->data;
+@@ -276,7 +278,9 @@ public:
+             bp_[k] = bp[k];
+         }
+ 
++#if defined (__ARM_ARCH_7EM__)
+         __asm__ volatile("vmsr fpscr, %0" :: "r"(fpscr_save));
++#endif
+ 
+         transmit(out, 0);
+         release(out);
+diff --git a/software/src/HSIOFrame.h b/software/src/HSIOFrame.h
+index 8061f8c4..411dd951 100644
+--- a/software/src/HSIOFrame.h
++++ b/software/src/HSIOFrame.h
+@@ -833,7 +833,9 @@ struct IOFrame {
+ 
+     // --- Soft IO ---
+     int In(int ch) {
+-      if (ch < ADC_CHANNEL_COUNT)
++      // current_ioframe is null until the first ISR Process(); reading
++      // through null is benign on IMXRT but fatal on host builds.
++      if (current_ioframe && ch < ADC_CHANNEL_COUNT)
+         return current_ioframe->cv.pitch_values[ch];
+       return 0;
+     }
+diff --git a/software/src/src/Audio/filter_variable2.cpp b/software/src/src/Audio/filter_variable2.cpp
+index 310f4949..2eb405d3 100644
+--- a/software/src/src/Audio/filter_variable2.cpp
++++ b/software/src/src/Audio/filter_variable2.cpp
+@@ -272,7 +272,7 @@ void AudioFilterStateVariable2::update(void)
+ 	return;
+ }
+ 
+-#elif defined(KINETISL)
++#else // portable fallback (XLOC2 emulator host build)
+ 
+ void AudioFilterStateVariable2::update(void)
+ {
+diff --git a/software/src/src/drivers/weegfx.cpp b/software/src/src/drivers/weegfx.cpp
+index 956a1189..9a002635 100644
+--- a/software/src/src/drivers/weegfx.cpp
++++ b/software/src/src/drivers/weegfx.cpp
+@@ -529,10 +529,10 @@ void Graphics::print(uint16_t value, unsigned width)
+   print(str);
+ }
+ 
+-void Graphics::print(uint32_t value, size_t width)
++void Graphics::print(uint32_t value, unsigned width)
+ {
+   char *str = itos<uint32_t, false>(value, print_buf, sizeof(print_buf));
+-  while (str > print_buf && (size_t)(str - print_buf) >= sizeof(print_buf) - width) *--str = ' ';
++  while (str > print_buf && (unsigned)(str - print_buf) >= sizeof(print_buf) - width) *--str = ' ';
+   print(str);
+ }
+ 
+diff --git a/software/src/src/extern/dspinst.h b/software/src/src/extern/dspinst.h
+index b9ae9880..dadbb2af 100644
+--- a/software/src/src/extern/dspinst.h
++++ b/software/src/src/extern/dspinst.h
+@@ -37,7 +37,7 @@ static inline int32_t signed_saturate_rshift(int32_t val, int bits, int rshift)
+ 	int32_t out;
+ 	asm volatile("ssat %0, %1, %2, asr %3" : "=r" (out) : "I" (bits), "r" (val), "I" (rshift));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	int32_t out, max;
+ 	out = val >> rshift;
+ 	max = 1 << (bits - 1);
+@@ -75,7 +75,7 @@ static inline int32_t signed_multiply_32x16b(int32_t a, uint32_t b)
+ 	int32_t out;
+ 	asm volatile("smulwb %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return ((int64_t)a * (int16_t)(b & 0xFFFF)) >> 16;
+ #endif
+ }
+@@ -88,7 +88,7 @@ static inline int32_t signed_multiply_32x16t(int32_t a, uint32_t b)
+ 	int32_t out;
+ 	asm volatile("smulwt %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return ((int64_t)a * (int16_t)(b >> 16)) >> 16;
+ #endif
+ }
+@@ -101,7 +101,7 @@ static inline int32_t multiply_32x32_rshift32(int32_t a, int32_t b)
+ 	int32_t out;
+ 	asm volatile("smmul %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return ((int64_t)a * (int64_t)b) >> 32;
+ #endif
+ }
+@@ -114,7 +114,7 @@ static inline uint32_t multiply_u32xu32_rshift32(uint32_t a, uint32_t b)
+   uint32_t out, tmp;
+   asm volatile("umull %0, %1, %2, %3" : "=r" (tmp), "=r" (out) : "r" (a), "r" (b));
+   return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+   return 0; // TODO....
+ #endif
+ }
+@@ -127,7 +127,7 @@ static inline int32_t multiply_32x32_rshift32_rounded(int32_t a, int32_t b)
+ 	int32_t out;
+ 	asm volatile("smmulr %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return (((int64_t)a * (int64_t)b) + 0x8000000) >> 32;
+ #endif
+ }
+@@ -140,7 +140,7 @@ static inline int32_t multiply_accumulate_32x32_rshift32_rounded(int32_t sum, in
+ 	int32_t out;
+ 	asm volatile("smmlar %0, %2, %3, %1" : "=r" (out) : "r" (sum), "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return sum + ((((int64_t)a * (int64_t)b) + 0x8000000) >> 32);
+ #endif
+ }
+@@ -153,7 +153,7 @@ static inline int32_t multiply_subtract_32x32_rshift32_rounded(int32_t sum, int3
+ 	int32_t out;
+ 	asm volatile("smmlsr %0, %2, %3, %1" : "=r" (out) : "r" (sum), "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return sum - ((((int64_t)a * (int64_t)b) + 0x8000000) >> 32);
+ #endif
+ }
+@@ -167,7 +167,7 @@ static inline uint32_t pack_16t_16t(int32_t a, int32_t b)
+ 	int32_t out;
+ 	asm volatile("pkhtb %0, %1, %2, asr #16" : "=r" (out) : "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return (a & 0xFFFF0000) | ((uint32_t)b >> 16);
+ #endif
+ }
+@@ -180,7 +180,7 @@ static inline uint32_t pack_16t_16b(int32_t a, int32_t b)
+ 	int32_t out;
+ 	asm volatile("pkhtb %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return (a & 0xFFFF0000) | (b & 0x0000FFFF);
+ #endif
+ }
+@@ -193,7 +193,7 @@ static inline uint32_t pack_16b_16b(int32_t a, int32_t b)
+ 	int32_t out;
+ 	asm volatile("pkhbt %0, %1, %2, lsl #16" : "=r" (out) : "r" (b), "r" (a));
+ 	return out;
+-#elif defined(KINETISL)
++#else /* portable fallback (XLOC2 emulator host build) */
+ 	return (a << 16) | (b & 0x0000FFFF);
+ #endif
+ }
+@@ -367,6 +367,7 @@ static inline int32_t FRACMUL_SHL(int32_t x, int32_t y, int z)
+ #endif
+ 
+ //get Q from PSR
++#if defined (__ARM_ARCH_7EM__)
+ static inline uint32_t get_q_psr(void) __attribute__((always_inline, unused));
+ static inline uint32_t get_q_psr(void)
+ {
+@@ -374,8 +375,12 @@ static inline uint32_t get_q_psr(void)
+   asm ("mrs %0, APSR" : "=r" (out));
+   return (out & 0x8000000)>>27;
+ }
++#else
++static inline uint32_t get_q_psr(void) { return 0; }
++#endif
+ 
+ //clear Q BIT in PSR
++#if defined (__ARM_ARCH_7EM__)
+ static inline void clr_q_psr(void) __attribute__((always_inline, unused));
+ static inline void clr_q_psr(void)
+ {
+@@ -383,6 +388,9 @@ static inline void clr_q_psr(void)
+   asm ("mov %[t],#0\n"
+        "msr APSR_nzcvq,%0\n" : [t] "=&r" (t)::"cc");
+ }
++#else
++static inline void clr_q_psr(void) {}
++#endif
+ 
+ 
+ #endif
+diff --git a/software/src/util/util_math.h b/software/src/util/util_math.h
+index 474cff63..bc10bf72 100644
+--- a/software/src/util/util_math.h
++++ b/software/src/util/util_math.h
+@@ -72,6 +72,7 @@ constexpr int Atten(int8_t att) {
+ #define MOD_8(n, div) \
+   FAST_FP_MOD(n, div, 8)
+ 
++#if defined (__ARM_ARCH_7EM__)
+ inline int32_t SSAT16(int32_t value) __attribute__((always_inline));
+ inline int32_t SSAT16(int32_t value) {
+   int32_t result;
+@@ -117,6 +118,40 @@ static inline uint32_t uhadd16(uint32_t a, uint32_t b)
+   asm volatile("uhadd16 %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
+   return out;
+ }
++#else
++// Portable fallbacks for host builds (XLOC2 emulator)
++inline int32_t SSAT16(int32_t value) {
++  if (value > 32767) return 32767;
++  if (value < -32768) return -32768;
++  return value;
++}
++
++inline uint32_t USAT16(uint32_t value) {
++  return value > 65535u ? 65535u : value;
++}
++
++inline uint32_t USAT16(int32_t value) {
++  if (value < 0) return 0;
++  return value > 65535 ? 65535u : (uint32_t)value;
++}
++
++static inline uint32_t multiply_u32xu32_rshift24(uint32_t a, uint32_t b)
++{
++  return (uint32_t)(((uint64_t)a * (uint64_t)b) >> 24);
++}
++
++static inline uint32_t multiply_u32xu32_rshift(uint32_t a, uint32_t b, uint32_t shift)
++{
++  return (uint32_t)(((uint64_t)a * (uint64_t)b) >> shift);
++}
++
++static inline uint32_t uhadd16(uint32_t a, uint32_t b)
++{
++  uint32_t lo = (((a & 0xFFFF) + (b & 0xFFFF)) >> 1) & 0xFFFF;
++  uint32_t hi = (((a >> 16) + (b >> 16)) >> 1) & 0xFFFF;
++  return (hi << 16) | lo;
++}
++#endif
+ 
+ template <typename T, T smoothing>
+ struct SmoothedValue {

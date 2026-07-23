@@ -1,0 +1,4 @@
+build/
+dist/
+*.vcvplugin
+.DS_Store
