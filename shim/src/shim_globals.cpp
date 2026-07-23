@@ -92,7 +92,8 @@ ADC_Module::ADC_Module(uint8_t ADC_number, const uint8_t *const a_channel2sc1a,
       ADC_CLM3(&xemu_adc_scratch[24]),
       ADC_CLM2(&xemu_adc_scratch[25]),
       ADC_CLM1(&xemu_adc_scratch[26]),
-      ADC_CLM0(&xemu_adc_scratch[27]) {}
+      ADC_CLM0(&xemu_adc_scratch[27]),
+      PDB0_CHnC1(&xemu_adc_scratch[28]) {}
 
 ADC::ADC()
     : adc0_obj(0, nullptr, nullptr),

@@ -2,10 +2,17 @@
 #pragma once
 #include <Arduino.h>
 
+#include <chrono>
+#include <thread>
+
 class USBHost {
 public:
   void begin() {}
-  void Task() {}
+  void Task() {
+    // Called once per firmware main-loop iteration: throttle the loop
+    // thread so it doesn't spin a host core at 100%.
+    std::this_thread::sleep_for(std::chrono::microseconds(200));
+  }
 };
 
 class USBHub {

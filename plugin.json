@@ -1,0 +1,22 @@
+{
+  "slug": "CalsynthXLOC",
+  "name": "Calsynth XLOC",
+  "version": "2.0.1",
+  "license": "GPL-3.0-or-later",
+  "brand": "Calsynth",
+  "author": "Calsynth",
+  "authorEmail": "struan@calsynth.com",
+  "authorUrl": "https://calsynth.com",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "XLOC2",
+      "name": "XLOC2",
+      "description": "Runs the actual Phazerville firmware (Teensy 4.1 / CalSynth XLOC2 target) as a VCV Rack module: 8 CV ins, 8 CV outs, 4 trigger ins, OLED, dual encoders and 5 buttons. Audio applets are present but silent (CV-only phase).",
+      "tags": ["Utility", "Sequencer", "Quantizer", "Clock modulator", "Low-frequency oscillator", "Envelope generator", "Digital"]
+    }
+  ]
+}

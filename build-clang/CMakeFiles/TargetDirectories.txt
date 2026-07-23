@@ -1,0 +1,4 @@
+/root/xloc-vcv/build-clang/CMakeFiles/xloc_core.dir
+/root/xloc-vcv/build-clang/CMakeFiles/headless_test.dir
+/root/xloc-vcv/build-clang/CMakeFiles/edit_cache.dir
+/root/xloc-vcv/build-clang/CMakeFiles/rebuild_cache.dir

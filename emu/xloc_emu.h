@@ -114,8 +114,15 @@ Clock &clock();
 void set_storage_dir(const std::string &dir);
 const std::string &storage_dir();
 
-// Runs firmware setup() on the calling thread, then starts loop() on a
-// background thread. Returns after setup() completes.
+// Non-blocking boot: spawns a thread that runs setup() and then loop().
+// The caller must keep advancing virtual time via clock().step() (setup
+// busy-waits on millis(), the splash screen, and possibly a first-run
+// confirm dialog that needs a right-encoder press). booted() flips true
+// once setup() has completed.
+void boot_async();
+
+// Blocking boot for headless use: boot_async() + drive the clock until
+// setup() completes. Returns after setup() completes.
 void boot();
 
 // Stop the loop() thread (cooperative: loop keeps running; we just park it).

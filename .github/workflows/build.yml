@@ -1,0 +1,86 @@
+name: Build plugin
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  RACK_SDK_VERSION: 2.6.4
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            sdk: lin-x64
+          - name: mac-arm64
+            os: macos-14
+            sdk: mac-arm64
+          - name: mac-x64
+            os: macos-13
+            sdk: mac-x64
+          - name: win-x64
+            os: windows-latest
+            sdk: win-x64
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Apply firmware host-portability patches
+        run: cd firmware && git apply ../patches/*.patch
+
+      - name: Set up MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            git wget unzip zip zstd rsync
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-make
+            mingw-w64-x86_64-jq autoconf automake libtool
+
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zstd rsync
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zstd rsync jq || true
+
+      - name: Download Rack SDK
+        run: |
+          curl -L -o sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-${{ matrix.sdk }}.zip"
+          unzip -q sdk.zip
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export RACK_DIR="$(pwd)/Rack-SDK"
+          make -j$(nproc) dist
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          export RACK_DIR="$(pwd)/Rack-SDK"
+          if [ "$(uname)" = "Darwin" ]; then
+            make -j$(sysctl -n hw.ncpu) dist
+          else
+            make -j$(nproc) dist
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CalsynthXLOC-${{ matrix.name }}
+          path: dist/*.vcvplugin

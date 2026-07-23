@@ -87,28 +87,29 @@ void set_self_clocking(bool v) { g_self_clocking.store(v); }
 
 bool booted() { return g_booted.load(); }
 
-void boot() {
-  if (g_booted.load()) return;
-  std::atomic<bool> setup_done{false};
-  std::thread setup_thread([&] {
-    setup();
-    setup_done = true;
-  });
-  // Drive virtual time until setup() completes (splash screen etc. depend on
-  // millis() advancing and the display ISR draining the framebuffer).
-  while (!setup_done.load()) {
-    clock().step(1000000ull);  // 1 ms
-    std::this_thread::sleep_for(std::chrono::microseconds(50));
-  }
-  setup_thread.join();
-  g_booted = true;
+static std::atomic<bool> g_boot_started{false};
+
+void boot_async() {
+  if (g_boot_started.exchange(true)) return;
   g_loop_run = true;
   g_loop_thread = std::thread([] {
+    setup();
+    g_booted = true;
     while (g_loop_run.load()) {
       loop();  // firmware loop() contains its own while(true); returns never.
     }
   });
   g_loop_thread.detach();  // never joinable — firmware loop() never returns
+}
+
+void boot() {
+  boot_async();
+  // Drive virtual time until setup() completes (splash screen etc. depend on
+  // millis() advancing and the display ISR draining the framebuffer).
+  while (!g_booted.load()) {
+    clock().step(1000000ull);  // 1 ms
+    std::this_thread::sleep_for(std::chrono::microseconds(50));
+  }
 }
 
 void shutdown() {

@@ -39,6 +39,239 @@ index 8061f8c4..411dd951 100644
          return current_ioframe->cv.pitch_values[ch];
        return 0;
      }
+diff --git a/software/src/HemisphereApplet.cpp b/software/src/HemisphereApplet.cpp
+index 2fd2735f..9b164ecc 100644
+--- a/software/src/HemisphereApplet.cpp
++++ b/software/src/HemisphereApplet.cpp
+@@ -31,20 +31,23 @@ void HemisphereApplet::BaseStart(const HEM_SIDE hemisphere_) {
+ }
+ void HemisphereApplet::BaseView(bool full_screen, bool parked) const {
+     //if (HS::select_mode == hemisphere)
++    // (const_cast: View/DrawFullScreen are non-const virtuals overridden by
++    // every applet; changing their signatures is not practical)
++    HemisphereApplet* self = const_cast<HemisphereApplet*>(this);
+     gfxHeader(applet_name(), (HS::ALWAYS_SHOW_ICONS || full_screen) ? applet_icon() : nullptr);
+     // If active, draw the full screen view instead of the application screen
+     if (full_screen) {
+       if (parked)
+-        this->DrawFullScreen();
++        self->DrawFullScreen();
+       else
+         DrawConfigHelp();
+     }
+-    else this->View();
++    else self->View();
+ }
+ 
+ void HemisphereApplet::DrawConfigHelp() const {
+     for (int i=0; i<HELP_LABEL_COUNT; ++i) help[i] = "";
+-    SetHelp();
++    const_cast<HemisphereApplet*>(this)->SetHelp();
+     const bool clockrun = HS::clock_m.IsRunning();
+ 
+     for (int ch = 0; ch < 2; ++ch) {
+diff --git a/software/src/HemisphereApplet.h b/software/src/HemisphereApplet.h
+index 7ed1c021..ae785f08 100644
+--- a/software/src/HemisphereApplet.h
++++ b/software/src/HemisphereApplet.h
+@@ -168,8 +168,8 @@ public:
+     inline bool EditMode() const {
+       return (enc_edit[hemisphere].isEditing);
+     }
+-    void SetLabel(const char *str) { enc_edit[hemisphere].label = str; }
+-    void SetAux(bool aux) { enc_edit[hemisphere].aux_action = aux; }
++    void SetLabel(const char *str) const { enc_edit[hemisphere].label = str; }
++    void SetAux(bool aux) const { enc_edit[hemisphere].aux_action = aux; }
+ 
+     template<typename T>
+     void MoveCursor(T &cursor, int direction, int max) {
+diff --git a/software/src/OC_autotuner.h b/software/src/OC_autotuner.h
+index e7f77227..8ea7ea21 100644
+--- a/software/src/OC_autotuner.h
++++ b/software/src/OC_autotuner.h
+@@ -112,7 +112,7 @@ enum AUTO_CALIBRATION_STEP {
+   AUTO_CALIBRATION_STEP_LAST
+ };
+ 
+-extern const char* const AT_steps[];
++extern const char* const AT_steps[11];
+ extern const char *const reset_action_strings[];
+ extern const char *const status_action_strings[];
+ 
+diff --git a/software/src/OC_calibration.h b/software/src/OC_calibration.h
+index d1b7d30c..5e363945 100644
+--- a/software/src/OC_calibration.h
++++ b/software/src/OC_calibration.h
+@@ -17,9 +17,9 @@ namespace OC {
+ 
+ static constexpr uint16_t _ADC_OFFSET_NLM = 4095; // 0V == maximum 12-bit ADC value
+ #ifdef NORTHERNLIGHT
+-static constexpr uint16_t _ADC_OFFSET = (uint16_t)((float)pow(2,OC::ADC::kAdcResolution)*1.0f);   // ADC offset @3.3V
++static constexpr uint16_t _ADC_OFFSET = (uint16_t)(1u << OC::ADC::kAdcResolution);   // ADC offset @3.3V
+ #else
+-static constexpr uint16_t _ADC_OFFSET = (uint16_t)((float)pow(2,OC::ADC::kAdcResolution)*0.6666667f); // ADC offset @2.2V
++static constexpr uint16_t _ADC_OFFSET = (uint16_t)((1u << OC::ADC::kAdcResolution) * 2 / 3); // ADC offset @2.2V
+ #endif
+ 
+ static constexpr unsigned kCalibrationAdcSmoothing = 4;
+diff --git a/software/src/OC_menus.cpp b/software/src/OC_menus.cpp
+index d242eb00..9defb687 100644
+--- a/software/src/OC_menus.cpp
++++ b/software/src/OC_menus.cpp
+@@ -31,7 +31,12 @@ constexpr std::array<coords, sizeof...(Is)> generate_circle_pos_lut(util::index_
+   return { generate_circle_coords<Is>()... };
+ }
+ 
++#if defined(__clang__)
++// clang does not treat cosf/sinf as constexpr builtins; initialize at static init time
++static const std::array<coords, 12> circle_pos_lut = generate_circle_pos_lut(util::make_index_sequence<12>::type());
++#else
+ static constexpr std::array<coords, 12> circle_pos_lut = generate_circle_pos_lut(util::make_index_sequence<12>::type());
++#endif
+ 
+ namespace menu {
+ void Init()
+diff --git a/software/src/OC_strings.h b/software/src/OC_strings.h
+index e8af0380..ee819649 100644
+--- a/software/src/OC_strings.h
++++ b/software/src/OC_strings.h
+@@ -32,8 +32,12 @@ namespace OC {
+     extern const char * const note_names[];
+     extern const char * const note_names_unpadded[];
+     extern const char * const VOR_offsets[];    
+-    extern const char * const trigger_input_names_none[];
+-    extern const char * const cv_input_names_none[];
++#ifdef ARDUINO_TEENSY41
++    extern const char * const trigger_input_names_none[21];
++#else
++    extern const char * const trigger_input_names_none[13];
++#endif
++    extern const char * const cv_input_names_none[97];
+     extern const char * const no_yes[];
+     extern const char * const off_on[];
+     extern const char * const scaling_string[];
+diff --git a/software/src/apps/Calibr8or.h b/software/src/apps/Calibr8or.h
+index c749fa1d..b51c1db8 100644
+--- a/software/src/apps/Calibr8or.h
++++ b/software/src/apps/Calibr8or.h
+@@ -752,9 +752,10 @@ public:
+         gfxFrame(20, y-3, 64, 18);
+         gfxIcon(23, y+2, positive? PLUS_ICON : MINUS_ICON);
+ 
+-        segment.PrintWhole(33, y, abs(octave), 10);
++        auto& seg = const_cast<SegmentDisplay&>(segment);
++        seg.PrintWhole(33, y, abs(octave), 10);
+         gfxPrint(53, y+5, ".");
+-        segment.PrintWhole(61, y, abs(degrees), 10);
++        seg.PrintWhole(61, y, abs(degrees), 10);
+ 
+         // Scale
+         gfxIcon(89, y, SCALE_ICON);
+diff --git a/software/src/apps/CaptainMIDI.h b/software/src/apps/CaptainMIDI.h
+index a1074c9c..6f8a5c02 100644
+--- a/software/src/apps/CaptainMIDI.h
++++ b/software/src/apps/CaptainMIDI.h
+@@ -243,9 +243,10 @@ public:
+ 
+     void View() const;
+     void MainView() const {
+-        if (copy_mode) DrawCopyScreen();
+-        else if (display == 0) DrawSetupScreens();
+-        else DrawLogScreen();
++        auto* self = const_cast<AppCaptainMIDI*>(this);
++        if (copy_mode) self->DrawCopyScreen();
++        else if (display == 0) self->DrawSetupScreens();
++        else self->DrawLogScreen();
+     }
+ 
+     void EncoderEdit(int dir) {
+@@ -585,7 +586,7 @@ private:
+     const char* const GetLabel(int pos) const {
+       if (pos < DAC_CHANNEL_COUNT)
+         return frame.MIDIState.mapping[pos].get_label();
+-      return midi_out_functions[get_out_assign(pos - DAC_CHANNEL_COUNT)];
++      return midi_out_functions[const_cast<AppCaptainMIDI*>(this)->get_out_assign(pos - DAC_CHANNEL_COUNT)];
+     }
+ 
+     void DrawLogScreen() {
+diff --git a/software/src/apps/Enigma.h b/software/src/apps/Enigma.h
+index a5814a99..02604635 100644
+--- a/software/src/apps/Enigma.h
++++ b/software/src/apps/Enigma.h
+@@ -132,8 +132,9 @@ public:
+ 
+     void View() const;
+     void MainView() const {
+-        DrawHeader();
+-        DrawInterface();
++        auto* self = const_cast<AppEnigma*>(this);
++        self->DrawHeader();
++        self->DrawInterface();
+     }
+ 
+     // Public access to save method
+diff --git a/software/src/apps/ScaleEditor.h b/software/src/apps/ScaleEditor.h
+index 74099c3e..b79cf517 100644
+--- a/software/src/apps/ScaleEditor.h
++++ b/software/src/apps/ScaleEditor.h
+@@ -189,8 +189,9 @@ private:
+                     uint32_t cents = (note_value * 100) >> 7;
+                     uint32_t frac_cents = ((note_value * 100000) >> 7) - cents * 1000;
+ 
+-                    tinynumbers.PrintWhole(x + 2, y + 2, cents);
+-                    tinynumbers.PrintDecimal(frac_cents, 1, 1000);
++                    auto& tiny = const_cast<SegmentDisplay&>(tinynumbers);
++                    tiny.PrintWhole(x + 2, y + 2, cents);
++                    tiny.PrintDecimal(frac_cents, 1, 1000);
+ 
+                     // If this is the current note, highlight it
+                     if (ix == current_note && !length_set_mode) gfxInvert(x, y, 32, 9);
+@@ -202,15 +203,16 @@ private:
+ 
+         // Now the editing area:
+         if (length_set_mode) {
+-            segment.PrintWhole(22, 52, OC::user_scales[current_scale].num_notes);
++            const_cast<SegmentDisplay&>(segment).PrintWhole(22, 52, OC::user_scales[current_scale].num_notes);
+         } else {
+             // Show the value
+             uint32_t note_value = OC::user_scales[current_scale].notes[current_note];
+             uint32_t cents = (note_value * 100) >> 7;
+             uint32_t frac_cents = ((note_value * 100000) >> 7) - cents * 1000;
+ 
+-            segment.PrintWhole(12, 52, cents);
+-            segment.PrintDecimal(frac_cents, 3, 1000);
++            auto& seg = const_cast<SegmentDisplay&>(segment);
++            seg.PrintWhole(12, 52, cents);
++            seg.PrintDecimal(frac_cents, 3, 1000);
+         }
+     }
+ 
+diff --git a/software/src/apps/TheDarkestTimeline.h b/software/src/apps/TheDarkestTimeline.h
+index 3681a5df..30cd3b47 100644
+--- a/software/src/apps/TheDarkestTimeline.h
++++ b/software/src/apps/TheDarkestTimeline.h
+@@ -243,7 +243,7 @@ public:
+     void View() const;
+     void MainView() const {
+         gfxHeader("Darkest Timeline");
+-        DrawInterface();
++        const_cast<TheDarkestTimeline*>(this)->DrawInterface();
+     }
+ 
+     /* When the app is suspended, it sends out a system exclusive dump, generated here */
+diff --git a/software/src/audio_applets/WAVRecorderApplet.h b/software/src/audio_applets/WAVRecorderApplet.h
+index e773c923..9c7f7736 100644
+--- a/software/src/audio_applets/WAVRecorderApplet.h
++++ b/software/src/audio_applets/WAVRecorderApplet.h
+@@ -476,7 +476,7 @@ private:
+ 
+     bool QueuesAvailable() const {
+         for (int ch = 0; ch < Channels; ch++)
+-            if (!record_queue[ch].available()) return false;
++            if (!const_cast<AudioRecordQueue&>(record_queue[ch]).available()) return false;
+         return true;
+     }
+ 
 diff --git a/software/src/src/Audio/filter_variable2.cpp b/software/src/src/Audio/filter_variable2.cpp
 index 310f4949..2eb405d3 100644
 --- a/software/src/src/Audio/filter_variable2.cpp
