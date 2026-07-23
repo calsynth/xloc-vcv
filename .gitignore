@@ -2,3 +2,6 @@ build/
 dist/
 *.vcvplugin
 .DS_Store
+plugin.so
+plugin.dylib
+plugin.dll
