@@ -437,10 +437,20 @@ index b9ae9880..dadbb2af 100644
  
  #endif
 diff --git a/software/src/util/util_math.h b/software/src/util/util_math.h
-index 474cff63..bc10bf72 100644
+index 474cff63..45ba5322 100644
 --- a/software/src/util/util_math.h
 +++ b/software/src/util/util_math.h
-@@ -72,6 +72,7 @@ constexpr int Atten(int8_t att) {
+@@ -46,6 +46,9 @@ using simfloat = int32_t;
+  *
+  */
+ constexpr int Proportion(const int numerator, const int denominator, const int max_value) {
++    // ARM integer division by zero yields 0 (no trap); replicate that on
++    // hosts where it would raise SIGFPE.
++    if (denominator == 0) return 0;
+     simfloat proportion = int2simfloat((int32_t)abs(numerator)) / (int32_t)denominator;
+     int scaled = simfloat2int(proportion * max_value);
+     return numerator >= 0 ? scaled : -scaled;
+@@ -72,6 +75,7 @@ constexpr int Atten(int8_t att) {
  #define MOD_8(n, div) \
    FAST_FP_MOD(n, div, 8)
  
@@ -448,7 +458,7 @@ index 474cff63..bc10bf72 100644
  inline int32_t SSAT16(int32_t value) __attribute__((always_inline));
  inline int32_t SSAT16(int32_t value) {
    int32_t result;
-@@ -117,6 +118,40 @@ static inline uint32_t uhadd16(uint32_t a, uint32_t b)
+@@ -117,6 +121,40 @@ static inline uint32_t uhadd16(uint32_t a, uint32_t b)
    asm volatile("uhadd16 %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
    return out;
  }
