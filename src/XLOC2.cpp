@@ -15,11 +15,13 @@ struct XLOC2Module : Module {
     CV1_INPUT, CV2_INPUT, CV3_INPUT, CV4_INPUT,
     CV5_INPUT, CV6_INPUT, CV7_INPUT, CV8_INPUT,
     TR1_INPUT, TR2_INPUT, TR3_INPUT, TR4_INPUT,
+    AUDIO_L_INPUT, AUDIO_R_INPUT,
     NUM_INPUTS
   };
   enum OutputIds {
     OUTA_OUTPUT, OUTB_OUTPUT, OUTC_OUTPUT, OUTD_OUTPUT,
     OUTE_OUTPUT, OUTF_OUTPUT, OUTG_OUTPUT, OUTH_OUTPUT,
+    AUDIO_L_OUTPUT, AUDIO_R_OUTPUT,
     NUM_OUTPUTS
   };
   enum LightIds { NUM_LIGHTS };
@@ -42,6 +44,10 @@ struct XLOC2Module : Module {
     static const char *outNames = "ABCDEFGH";
     for (int i = 0; i < 8; ++i)
       configOutput(OUTA_OUTPUT + i, string::f("CV %c", outNames[i]));
+    configInput(AUDIO_L_INPUT, "Audio L (audio applets not yet ported — inert)");
+    configInput(AUDIO_R_INPUT, "Audio R (audio applets not yet ported — inert)");
+    configOutput(AUDIO_L_OUTPUT, "Audio L (audio applets not yet ported — silent)");
+    configOutput(AUDIO_R_OUTPUT, "Audio R (audio applets not yet ported — silent)");
 
     XLOC2Module *expected = nullptr;
     isOwner = owner.compare_exchange_strong(expected, this);
@@ -100,6 +106,8 @@ struct XLOC2Module : Module {
     // Collect outputs
     for (int i = 0; i < 8; ++i)
       outputs[OUTA_OUTPUT + i].setVoltage(xemu::get_cv_out_volts(i));
+    outputs[AUDIO_L_OUTPUT].setVoltage(0.f);  // phase 3: audio applet DSP
+    outputs[AUDIO_R_OUTPUT].setVoltage(0.f);
   }
 };
 
@@ -275,13 +283,23 @@ struct XlocButton : OpaqueWidget {
   void draw(const DrawArgs &args) override {
     float r = std::min(box.size.x, box.size.y) * 0.5f;
     float cx = box.size.x * 0.5f, cy = box.size.y * 0.5f;
+    // dark rim
     nvgBeginPath(args.vg);
     nvgCircle(args.vg, cx, cy, r);
-    nvgFillColor(args.vg, nvgRGB(0x22, 0x24, 0x28));
+    nvgFillColor(args.vg, nvgRGB(0x0A, 0x0A, 0x0A));
     nvgFill(args.vg);
+    // button cap: black, lit cool-white when held
     nvgBeginPath(args.vg);
-    nvgCircle(args.vg, cx, cy, r - 1.2f);
-    nvgFillColor(args.vg, held ? nvgRGB(0x9F, 0xD8, 0xFF) : nvgRGB(0xE8, 0xE4, 0xDC));
+    nvgCircle(args.vg, cx, cy, r - 1.0f);
+    nvgFillColor(args.vg, held ? nvgRGB(0x9F, 0xD8, 0xFF) : nvgRGB(0x1B, 0x1B, 0x1D));
+    nvgFill(args.vg);
+    // faint top highlight for a moulded look
+    NVGpaint hl = nvgRadialGradient(args.vg, cx, cy - r * 0.35f, 0.5f, r,
+                                    nvgRGBA(0xFF, 0xFF, 0xFF, held ? 30 : 40),
+                                    nvgRGBA(0xFF, 0xFF, 0xFF, 0));
+    nvgBeginPath(args.vg);
+    nvgCircle(args.vg, cx, cy, r - 1.0f);
+    nvgFillPaint(args.vg, hl);
     nvgFill(args.vg);
   }
 };
@@ -289,119 +307,83 @@ struct XlocButton : OpaqueWidget {
 // ---------------------------------------------------------------------------
 // Panel labels — drawn in code because Rack's SVG loader ignores <text>
 // ---------------------------------------------------------------------------
-struct PanelLabels : TransparentWidget {
-  void draw(const DrawArgs &args) override {
-    std::shared_ptr<window::Font> font =
-        APP->window->loadFont(asset::system("res/fonts/DejaVuSans.ttf"));
-    if (!font) return;
-    nvgFontFaceId(args.vg, font->handle);
-    nvgTextAlign(args.vg, NVG_ALIGN_CENTER | NVG_ALIGN_BASELINE);
-
-    auto label = [&](float xmm, float ymm, const char *s, float sizemm,
-                     NVGcolor color, int align = NVG_ALIGN_CENTER,
-                     float spacing = 0.4f) {
-      nvgFontSize(args.vg, mm2px(sizemm));
-      nvgTextLetterSpacing(args.vg, spacing);
-      nvgFillColor(args.vg, color);
-      nvgTextAlign(args.vg, align | NVG_ALIGN_BASELINE);
-      nvgText(args.vg, mm2px(xmm), mm2px(ymm), s, nullptr);
-    };
-
-    NVGcolor cream = nvgRGB(0xE8, 0xE4, 0xDC);
-    NVGcolor steel = nvgRGB(0x8F, 0xA1, 0xB3);
-    NVGcolor faint = nvgRGB(0x4A, 0x55, 0x63);
-    NVGcolor ice = nvgRGB(0xAF, 0xC2, 0xD4);
-
-    label(8.f, 6.4f, "XLOC2", 4.6f, nvgRGB(0xF2, 0xEF, 0xE9), NVG_ALIGN_LEFT, 1.2f);
-    label(144.4f, 6.4f, "CALSYNTH", 3.0f, steel, NVG_ALIGN_RIGHT, 1.6f);
-    label(16.f, 37.8f, "NAV", 2.4f, steel);
-    label(136.4f, 37.8f, "EDIT", 2.4f, steel);
-
-    static const char *btn[5] = {"A", "X", "Z", "Y", "B"};
-    for (int i = 0; i < 5; ++i) label(48.2f + i * 14.f, 59.f, btn[i], 2.6f, cream);
-
-    label(8.f, 67.4f, "CV IN", 2.4f, steel, NVG_ALIGN_LEFT, 0.8f);
-    for (int i = 0; i < 8; ++i) {
-      char n[4];
-      snprintf(n, sizeof n, "%d", i + 1);
-      label(16.7f + i * 17.f, 81.4f, n, 2.4f, ice);
-    }
-    label(8.f, 85.4f, "TRIG", 2.4f, steel, NVG_ALIGN_LEFT, 0.8f);
-    for (int i = 0; i < 4; ++i) {
-      char n[8];
-      snprintf(n, sizeof n, "TR%d", i + 1);
-      label(16.7f + i * 17.f, 99.4f, n, 2.4f, ice);
-    }
-    label(111.9f, 91.f, "PHAZERVILLE / TEENSY 4.1", 2.0f, faint);
-    label(8.f, 101.8f, "CV OUT", 2.4f, steel, NVG_ALIGN_LEFT, 0.8f);
-    for (int i = 0; i < 8; ++i) {
-      char n[2] = {(char)('A' + i), 0};
-      label(16.7f + i * 17.f, 125.4f, n, 2.6f, cream);
-    }
-  }
-};
-
 // ---------------------------------------------------------------------------
-// Module widget
+// Module widget — geometry matches res/XLOC2.svg (traced from the original
+// XLOC2 aluminium panel artwork). Panel is 22HP; the OLED aperture is
+// maximised while keeping the 128x64 2:1 aspect.
 // ---------------------------------------------------------------------------
 struct XLOC2Widget : ModuleWidget {
+  // Jack columns / rows (mm), shared with the panel generator.
+  static constexpr float COL_TRIG = 23.0f;
+  static constexpr float COL_CV1 = 39.0f, COL_CV2 = 52.0f;
+  static constexpr float COL_CO1 = 71.0f, COL_CO2 = 84.0f;
+  static constexpr float COL_AUD = 101.0f;
+  static constexpr float ROW[4] = {77.5f, 89.5f, 101.5f, 113.5f};
+
   explicit XLOC2Widget(XLOC2Module *module) {
     setModule(module);
     setPanel(createPanel(asset::plugin(pluginInstance, "res/XLOC2.svg")));
-
-    auto *labels = new PanelLabels();
-    labels->box.size = box.size;
-    addChild(labels);
 
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-    // OLED
+    // OLED (aperture 12,7.6 -> 99.76,51.5)
     auto *oled = new OledWidget();
     oled->module = module;
-    oled->box.pos = mm2px(Vec(44.2f, 8.f));
-    oled->box.size = mm2px(Vec(64.f, 32.f));
+    oled->box.pos = mm2px(Vec(12.f, 7.6f));
+    oled->box.size = mm2px(Vec(87.76f, 43.9f));
     addChild(oled);
 
-    // Encoders
-    auto *encL = new XlocEncoder();
-    encL->module = module;
-    encL->which = 0;
-    encL->box.size = mm2px(Vec(16.f, 16.f));
-    encL->box.pos = mm2px(Vec(16.f - 8.f, 24.f - 8.f));
-    addChild(encL);
+    // Encoders below the screen, flanking Z
+    auto addEnc = [&](float xmm, int which) {
+      auto *e = new XlocEncoder();
+      e->module = module;
+      e->which = which;
+      e->box.size = mm2px(Vec(13.f, 13.f));
+      e->box.pos = mm2px(Vec(xmm - 6.5f, 58.5f - 6.5f));
+      addChild(e);
+    };
+    addEnc(22.0f, 0);
+    addEnc(89.76f, 1);
 
-    auto *encR = new XlocEncoder();
-    encR->module = module;
-    encR->which = 1;
-    encR->box.size = mm2px(Vec(16.f, 16.f));
-    encR->box.pos = mm2px(Vec(136.4f - 8.f, 24.f - 8.f));
-    addChild(encR);
-
-    // Buttons A X Z Y B (Z in the middle like the hardware)
-    static const int pins[5] = {xemu::BTN_A, xemu::BTN_X, xemu::BTN_Z, xemu::BTN_Y, xemu::BTN_B};
-    for (int i = 0; i < 5; ++i) {
+    // Buttons: A/X flank screen left, B/Y right, Z between the encoders.
+    auto addBtn = [&](float xmm, float ymm, int pin) {
       auto *b = new XlocButton();
       b->module = module;
-      b->pin = pins[i];
-      b->box.size = mm2px(Vec(8.f, 8.f));
-      b->box.pos = mm2px(Vec(48.2f + i * 14.f - 4.f, 49.f - 4.f));
+      b->pin = pin;
+      b->box.size = mm2px(Vec(7.6f, 7.6f));
+      b->box.pos = mm2px(Vec(xmm - 3.8f, ymm - 3.8f));
       addChild(b);
-    }
+    };
+    addBtn(6.2f, 14.5f, xemu::BTN_A);
+    addBtn(6.2f, 42.5f, xemu::BTN_X);
+    addBtn(105.56f, 14.5f, xemu::BTN_B);
+    addBtn(105.56f, 42.5f, xemu::BTN_Y);
+    addBtn(55.88f, 57.0f, xemu::BTN_Z);
 
     // Jacks
-    auto colX = [](int i) { return 16.7f + i * 17.f; };
-    for (int i = 0; i < 8; ++i)
-      addInput(createInputCentered<PJ301MPort>(mm2px(Vec(colX(i), 72.f)), module,
-                                               XLOC2Module::CV1_INPUT + i));
-    for (int i = 0; i < 4; ++i)
-      addInput(createInputCentered<PJ301MPort>(mm2px(Vec(colX(i), 90.f)), module,
-                                               XLOC2Module::TR1_INPUT + i));
-    for (int i = 0; i < 8; ++i)
-      addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(colX(i), 112.f)), module,
-                                                 XLOC2Module::OUTA_OUTPUT + i));
+    auto in = [&](float xmm, int row, int id) {
+      addInput(createInputCentered<PJ301MPort>(mm2px(Vec(xmm, ROW[row])), module, id));
+    };
+    auto out = [&](float xmm, int row, int id) {
+      addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(xmm, ROW[row])), module, id));
+    };
+    for (int r = 0; r < 4; ++r) in(COL_TRIG, r, XLOC2Module::TR1_INPUT + r);
+    for (int r = 0; r < 4; ++r) {
+      in(COL_CV1, r, XLOC2Module::CV1_INPUT + r);
+      in(COL_CV2, r, XLOC2Module::CV5_INPUT + r);
+    }
+    for (int r = 0; r < 4; ++r) {
+      out(COL_CO1, r, XLOC2Module::OUTA_OUTPUT + r);
+      out(COL_CO2, r, XLOC2Module::OUTE_OUTPUT + r);
+    }
+    // AUDIO column: L-in, R-in, L-out, R-out (inert until phase 3)
+    in(COL_AUD, 0, XLOC2Module::AUDIO_L_INPUT);
+    in(COL_AUD, 1, XLOC2Module::AUDIO_R_INPUT);
+    out(COL_AUD, 2, XLOC2Module::AUDIO_L_OUTPUT);
+    out(COL_AUD, 3, XLOC2Module::AUDIO_R_OUTPUT);
   }
 
   void appendContextMenu(Menu *menu) override {
