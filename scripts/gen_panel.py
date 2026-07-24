@@ -60,9 +60,11 @@ def emit(items, tx, ty, scale=1.0, fill=None):
 
 
 # ---- target geometry (mm) — keep in sync with src/XLOC2.cpp ----
+# No USB/MIDI column (those ports don't exist in VCV); the six functional jack
+# columns are spread symmetrically about the panel centre (55.88).
 W, H = 111.76, 128.5                       # 22HP x 3U
 SX0, SY0, SX1, SY1 = 12.0, 7.6, 99.76, 51.5   # screen 87.76 x 43.9 (2:1)
-C = dict(usb=7.6, trig=23.0, cv1=39.0, cv2=52.0, co1=71.0, co2=84.0, aud=101.0)
+C = dict(trig=14.5, cv1=32.0, cv2=45.0, co1=66.76, co2=79.76, aud=97.26)
 R = [77.5, 89.5, 101.5, 113.5]
 LO = 6.0
 HDR = 68.6
@@ -80,12 +82,6 @@ emit(grab(218, 424, 239, 434), C['trig'], HDR)
 emit(grab(265, 424, 289, 434), (C['cv1'] + C['cv2']) / 2, HDR)
 emit(grab(324, 424, 359, 434), (C['co1'] + C['co2']) / 2, HDR)
 emit(grab(374, 424, 403, 434), C['aud'], HDR)
-emit(grab(184, 450, 201, 460), C['usb'], R[0] + LO)              # USB
-emit(grab(202, 424, 210, 446), C['usb'] + 5.6, R[0] - 2.4)       # DEV (vert.)
-emit(grab(202, 470, 210, 494), C['usb'] + 5.8, (R[1] + R[2]) / 2 - 4.6)  # HOST
-emit(grab(182, 535, 201, 545), C['usb'], R[2] + LO)              # MIDI
-emit(grab(202, 516, 210, 528), C['usb'] + 5.4, R[2] - 0.6)       # IN
-emit(grab(202, 548, 210, 566), C['usb'] + 5.6, R[3] - 0.6)       # OUT
 numbox = dict(trig=(217, 233), cv1=(252, 268), cv2=(281, 297),
               co1=(316, 332), co2=(345, 361))
 rowlab = [(464, 478), (499, 512), (534, 547), (568, 581)]
@@ -124,13 +120,6 @@ ctl = (
     f'<circle cx="{ENCL}" cy="{ENCY}" r="6.2" fill="#2a2a2a" stroke="#0c0c0c" stroke-width="0.5"/>'
     f'<circle cx="{ENCR}" cy="{ENCY}" r="6.2" fill="#2a2a2a" stroke="#0c0c0c" stroke-width="0.5"/>'
 )
-# decorative USB (DEV/HOST) + MIDI jacks (non-functional in VCV)
-dec = (
-    f'<rect x="{C["usb"]-1.9}" y="{R[0]-6.5}" width="3.8" height="9.5" rx="1.9" fill="#0c0c0c"/>'
-    f'<rect x="{C["usb"]-2.6}" y="{(R[1]+R[2])/2-7.5}" width="5.2" height="15" rx="0.6" fill="#0c0c0c"/>'
-    f'<circle cx="{C["usb"]:.2f}" cy="{R[2]:.2f}" r="3.4" fill="#0c0c0c"/>'
-    f'<circle cx="{C["usb"]:.2f}" cy="{R[3]:.2f}" r="3.4" fill="#0c0c0c"/>'
-)
 
 body = "".join(f'<path d="{d}" fill="{f}"/>' for d, f in out)
 svg = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -139,7 +128,7 @@ svg = f'''<?xml version="1.0" encoding="UTF-8"?>
 <rect x="0" y="0" width="{W}" height="{H}" fill="none" stroke="#c9c5bd" stroke-width="0.5"/>
 <rect x="{SX0}" y="{SY0}" width="{SX1-SX0:.2f}" height="{SY1-SY0:.2f}" rx="1.4" fill="#050505"/>
 <rect x="{SX0-0.7:.2f}" y="{SY0-0.7:.2f}" width="{SX1-SX0+1.4:.2f}" height="{SY1-SY0+1.4:.2f}" rx="1.8" fill="none" stroke="#b9b5ad" stroke-width="0.5"/>
-{hsvg}{ctl}{dec}
+{hsvg}{ctl}
 {body}
 </svg>'''
 import os

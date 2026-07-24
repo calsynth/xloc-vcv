@@ -313,11 +313,11 @@ struct XlocButton : OpaqueWidget {
 // maximised while keeping the 128x64 2:1 aspect.
 // ---------------------------------------------------------------------------
 struct XLOC2Widget : ModuleWidget {
-  // Jack columns / rows (mm), shared with the panel generator.
-  static constexpr float COL_TRIG = 23.0f;
-  static constexpr float COL_CV1 = 39.0f, COL_CV2 = 52.0f;
-  static constexpr float COL_CO1 = 71.0f, COL_CO2 = 84.0f;
-  static constexpr float COL_AUD = 101.0f;
+  // Jack columns / rows (mm), shared with scripts/gen_panel.py.
+  static constexpr float COL_TRIG = 14.5f;
+  static constexpr float COL_CV1 = 32.0f, COL_CV2 = 45.0f;
+  static constexpr float COL_CO1 = 66.76f, COL_CO2 = 79.76f;
+  static constexpr float COL_AUD = 97.26f;
   static constexpr float ROW[4] = {77.5f, 89.5f, 101.5f, 113.5f};
 
   explicit XLOC2Widget(XLOC2Module *module) {
