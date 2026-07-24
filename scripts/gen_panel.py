@@ -75,7 +75,7 @@ BY_TOP, BY_BOT = 19.0, 41.0                 # button rows
 ENCL, ENCR, ENCY = 22.0, 89.76, 58.5
 ZX, ZY = 55.88, 57.5
 
-emit(grab(250, 246, 340, 264), W / 2, 7.2, 1.0)      # XLOC 2 wordmark
+emit(grab(250, 246, 340, 264), W / 2, 5.3, 1.0)      # XLOC 2 wordmark (centred in top strip)
 emit(grab(248, 581, 338, 602), W / 2, 123.6, 1.15)   # calsynth logo
 emit(grab(204, 292, 222, 304), BXL, BY_TOP + 6.4)    # A
 emit(grab(362, 292, 380, 304), BXR, BY_TOP + 6.4)    # B
@@ -98,8 +98,6 @@ emit(grab(372, 517, 381, 528), C['aud'] - 6.6, R[2])            # L
 emit(grab(372, 551, 382, 562), C['aud'] - 6.6, R[3])            # R
 emit(grab(386, 462, 398, 480), C['aud'] + 6.4, (R[0] + R[1]) / 2)  # IN (vert.)
 emit(grab(380, 531, 402, 548), C['aud'] + 6.4, (R[2] + R[3]) / 2)  # OUT (vert.)
-emit(grab(180, 266, 193, 280), 5.0, 12.4)                       # indicator dot
-emit(grab(391, 266, 404, 280), W - 5.0, 12.4)
 
 # jack holes (ports drawn on top by widgets)
 holes = []
