@@ -329,11 +329,11 @@ struct XLOC2Widget : ModuleWidget {
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-    // OLED (aperture 12,7.6 -> 99.76,51.5)
+    // OLED (aperture 17.88,11 -> 93.88,49)
     auto *oled = new OledWidget();
     oled->module = module;
-    oled->box.pos = mm2px(Vec(12.f, 7.6f));
-    oled->box.size = mm2px(Vec(87.76f, 43.9f));
+    oled->box.pos = mm2px(Vec(17.88f, 11.f));
+    oled->box.size = mm2px(Vec(76.f, 38.f));
     addChild(oled);
 
     // Encoders below the screen, flanking Z
@@ -341,8 +341,8 @@ struct XLOC2Widget : ModuleWidget {
       auto *e = new XlocEncoder();
       e->module = module;
       e->which = which;
-      e->box.size = mm2px(Vec(13.f, 13.f));
-      e->box.pos = mm2px(Vec(xmm - 6.5f, 58.5f - 6.5f));
+      e->box.size = mm2px(Vec(11.2f, 11.2f));
+      e->box.pos = mm2px(Vec(xmm - 5.6f, 58.5f - 5.6f));
       addChild(e);
     };
     addEnc(22.0f, 0);
@@ -357,11 +357,11 @@ struct XLOC2Widget : ModuleWidget {
       b->box.pos = mm2px(Vec(xmm - 3.8f, ymm - 3.8f));
       addChild(b);
     };
-    addBtn(6.2f, 14.5f, xemu::BTN_A);
-    addBtn(6.2f, 42.5f, xemu::BTN_X);
-    addBtn(105.56f, 14.5f, xemu::BTN_B);
-    addBtn(105.56f, 42.5f, xemu::BTN_Y);
-    addBtn(55.88f, 57.0f, xemu::BTN_Z);
+    addBtn(8.5f, 19.0f, xemu::BTN_A);
+    addBtn(8.5f, 41.0f, xemu::BTN_X);
+    addBtn(103.26f, 19.0f, xemu::BTN_B);
+    addBtn(103.26f, 41.0f, xemu::BTN_Y);
+    addBtn(55.88f, 57.5f, xemu::BTN_Z);
 
     // Jacks
     auto in = [&](float xmm, int row, int id) {

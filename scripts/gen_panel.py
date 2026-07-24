@@ -61,23 +61,27 @@ def emit(items, tx, ty, scale=1.0, fill=None):
 
 # ---- target geometry (mm) — keep in sync with src/XLOC2.cpp ----
 # No USB/MIDI column (those ports don't exist in VCV); the six functional jack
-# columns are spread symmetrically about the panel centre (55.88).
+# columns are spread symmetrically about the panel centre (55.88). The title
+# gets a clear strip above the screen and the controls sit off the screen edge
+# with margin, so nothing crowds the aperture.
 W, H = 111.76, 128.5                       # 22HP x 3U
-SX0, SY0, SX1, SY1 = 12.0, 7.6, 99.76, 51.5   # screen 87.76 x 43.9 (2:1)
+SX0, SY0, SX1, SY1 = 17.88, 11.0, 93.88, 49.0   # screen 76 x 38 (2:1)
 C = dict(trig=14.5, cv1=32.0, cv2=45.0, co1=66.76, co2=79.76, aud=97.26)
 R = [77.5, 89.5, 101.5, 113.5]
 LO = 6.0
 HDR = 68.6
+BXL, BXR = 8.5, W - 8.5                     # button columns (flank screen)
+BY_TOP, BY_BOT = 19.0, 41.0                 # button rows
 ENCL, ENCR, ENCY = 22.0, 89.76, 58.5
-ZX, ZY = 55.88, 57.0
+ZX, ZY = 55.88, 57.5
 
-emit(grab(250, 246, 340, 264), W / 2, 4.9, 1.12)     # XLOC 2 wordmark
+emit(grab(250, 246, 340, 264), W / 2, 7.2, 1.0)      # XLOC 2 wordmark
 emit(grab(248, 581, 338, 602), W / 2, 123.6, 1.15)   # calsynth logo
-emit(grab(204, 292, 222, 304), 6.2, 20.8)            # A
-emit(grab(362, 292, 380, 304), W - 6.2, 20.8)        # B
-emit(grab(204, 335, 222, 347), 6.2, 48.8)            # X
-emit(grab(362, 335, 380, 347), W - 6.2, 48.8)        # Y
-emit(grab(284, 396, 300, 408), ZX, ZY + 7.2)         # Z
+emit(grab(204, 292, 222, 304), BXL, BY_TOP + 6.4)    # A
+emit(grab(362, 292, 380, 304), BXR, BY_TOP + 6.4)    # B
+emit(grab(204, 335, 222, 347), BXL, BY_BOT + 6.4)    # X
+emit(grab(362, 335, 380, 347), BXR, BY_BOT + 6.4)    # Y
+emit(grab(284, 396, 300, 408), ZX, ZY + 7.0)         # Z
 emit(grab(218, 424, 239, 434), C['trig'], HDR)
 emit(grab(265, 424, 289, 434), (C['cv1'] + C['cv2']) / 2, HDR)
 emit(grab(324, 424, 359, 434), (C['co1'] + C['co2']) / 2, HDR)
@@ -112,13 +116,13 @@ hsvg = "".join(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3.4" fill="#0c0c0c"/>'
 
 # control mounting circles (widgets drawn on top)
 ctl = (
-    f'<circle cx="6.2" cy="14.5" r="3.6" fill="#161616"/>'
-    f'<circle cx="{W-6.2}" cy="14.5" r="3.6" fill="#161616"/>'
-    f'<circle cx="6.2" cy="42.5" r="3.6" fill="#161616"/>'
-    f'<circle cx="{W-6.2}" cy="42.5" r="3.6" fill="#161616"/>'
+    f'<circle cx="{BXL}" cy="{BY_TOP}" r="3.6" fill="#161616"/>'
+    f'<circle cx="{BXR}" cy="{BY_TOP}" r="3.6" fill="#161616"/>'
+    f'<circle cx="{BXL}" cy="{BY_BOT}" r="3.6" fill="#161616"/>'
+    f'<circle cx="{BXR}" cy="{BY_BOT}" r="3.6" fill="#161616"/>'
     f'<circle cx="{ZX}" cy="{ZY}" r="3.6" fill="#161616"/>'
-    f'<circle cx="{ENCL}" cy="{ENCY}" r="6.2" fill="#2a2a2a" stroke="#0c0c0c" stroke-width="0.5"/>'
-    f'<circle cx="{ENCR}" cy="{ENCY}" r="6.2" fill="#2a2a2a" stroke="#0c0c0c" stroke-width="0.5"/>'
+    f'<circle cx="{ENCL}" cy="{ENCY}" r="5.6" fill="#2a2a2a" stroke="#0c0c0c" stroke-width="0.5"/>'
+    f'<circle cx="{ENCR}" cy="{ENCY}" r="5.6" fill="#2a2a2a" stroke="#0c0c0c" stroke-width="0.5"/>'
 )
 
 body = "".join(f'<path d="{d}" fill="{f}"/>' for d, f in out)
