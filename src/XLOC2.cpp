@@ -33,6 +33,16 @@ struct XLOC2Module : Module {
   std::atomic<uint64_t> encClickUntil[2] = {{0}, {0}};
   std::atomic<uint64_t> encClickStart[2] = {{0}, {0}};
   bool encClickActive[2] = {false, false};
+  // Latch auto-release bookkeeping (virtual ns):
+  // last encoder use (turn/push) — latches expire after idle timeout
+  std::atomic<uint64_t> lastEncActivityNs{0};
+  // set past the end of a timed encoder click — latches armed before this
+  // release once it passes ("hold button + click encoder" completes combo)
+  std::atomic<uint64_t> latchReleaseAtNs{0};
+
+  void noteEncoderActivity() {
+    lastEncActivityNs.store(xemu::clock().now_ns.load());
+  }
 
   bool trigHigh[4] = {false, false, false, false};
 
@@ -79,8 +89,13 @@ struct XLOC2Module : Module {
 
   void clickEncoder(int which, float virtualMs) {
     uint64_t now = xemu::clock().now_ns.load();
+    uint64_t until = now + (uint64_t)(virtualMs * 1e6);
     encClickStart[which].store(now);
-    encClickUntil[which].store(now + (uint64_t)(virtualMs * 1e6));
+    encClickUntil[which].store(until);
+    lastEncActivityNs.store(until);
+    // Any latched button held through this click has served its purpose:
+    // release it shortly after the press is over.
+    latchReleaseAtNs.store(until + 60000000ull);
   }
 
   void dualClickEncoders() {
@@ -94,6 +109,8 @@ struct XLOC2Module : Module {
     encClickUntil[0].store(now + 170000000ull);           // L: 0..170 ms
     encClickStart[1].store(now + 30000000ull);            // R: 30..170 ms
     encClickUntil[1].store(now + 170000000ull);
+    lastEncActivityNs.store(now + 170000000ull);
+    latchReleaseAtNs.store(now + 230000000ull);
   }
 
   void process(const ProcessArgs &args) override {
@@ -298,6 +315,7 @@ struct XlocEncoder : OpaqueWidget {
         if (module && module->isOwner) {
           if (shiftHeld) {
             xemu::press_encoder(which, false);
+            module->noteEncoderActivity();
           } else if (!dragged && !altClicked) {
             module->clickEncoder(which, 80.f);  // short press
           }
@@ -322,7 +340,10 @@ struct XlocEncoder : OpaqueWidget {
       dragAccum -= detents * kPxPerDetent;
       dragged = true;
       angle += detents * 0.30f;
-      if (module && module->isOwner) xemu::turn_encoder(which, detents);
+      if (module && module->isOwner) {
+        xemu::turn_encoder(which, detents);
+        module->noteEncoderActivity();
+      }
     }
   }
 
@@ -378,9 +399,32 @@ struct XlocButton : OpaqueWidget {
   bool held = false;
   bool latched = false;  // right-click: hold the button down so an encoder
                          // can be turned while it's "pressed" (applet select)
+  uint64_t latchArmNs = 0;  // virtual time the latch was engaged
+
+  // Latch auto-release: 5 s (virtual) of encoder inactivity
+  static constexpr uint64_t kLatchIdleNs = 5000000000ull;
 
   void setPin(bool down) {
     if (module && module->isOwner) xemu::set_button(pin, down);
+  }
+
+  void step() override {
+    if (latched && module && module->isOwner) {
+      uint64_t now = xemu::clock().now_ns.load();
+      // 1. An encoder click that started after this latch was engaged has
+      //    completed — the button+encoder combo is done, let go.
+      uint64_t rel = module->latchReleaseAtNs.load();
+      bool combo_done = rel > latchArmNs && now >= rel;
+      // 2. Encoders idle too long — latch forgotten, let go.
+      uint64_t act = module->lastEncActivityNs.load();
+      if (act < latchArmNs) act = latchArmNs;
+      bool idle = now >= act + kLatchIdleNs;
+      if (combo_done || idle) {
+        latched = false;
+        setPin(false);
+      }
+    }
+    OpaqueWidget::step();
   }
 
   void onButton(const ButtonEvent &e) override {
@@ -403,6 +447,7 @@ struct XlocButton : OpaqueWidget {
     }
     if (e.button == GLFW_MOUSE_BUTTON_RIGHT && e.action == GLFW_PRESS) {
       latched = !latched;
+      if (latched) latchArmNs = xemu::clock().now_ns.load();
       setPin(latched);
       e.consume(this);
     }
