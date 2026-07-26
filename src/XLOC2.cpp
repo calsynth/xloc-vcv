@@ -31,6 +31,7 @@ struct XLOC2Module : Module {
 
   // Encoder click scheduling (virtual-time press/release), fed by widgets.
   std::atomic<uint64_t> encClickUntil[2] = {{0}, {0}};
+  std::atomic<uint64_t> encClickStart[2] = {{0}, {0}};
   bool encClickActive[2] = {false, false};
 
   bool trigHigh[4] = {false, false, false, false};
@@ -78,7 +79,20 @@ struct XLOC2Module : Module {
 
   void clickEncoder(int which, float virtualMs) {
     uint64_t now = xemu::clock().now_ns.load();
+    encClickStart[which].store(now);
     encClickUntil[which].store(now + (uint64_t)(virtualMs * 1e6));
+  }
+
+  void dualClickEncoders() {
+    // Press both encoders, STAGGERED ~30 virtual ms: the firmware's combo
+    // detector (AudioAppletSubapp::HandleEncoderButtonEvent) arms on a
+    // single-button DOWN and fires when the second DOWN sees both held.
+    // Perfectly simultaneous presses never arm it.
+    uint64_t now = xemu::clock().now_ns.load();
+    encClickStart[0].store(now);
+    encClickUntil[0].store(now + 170000000ull);           // L: 0..170 ms
+    encClickStart[1].store(now + 30000000ull);            // R: 30..170 ms
+    encClickUntil[1].store(now + 170000000ull);
   }
 
   void process(const ProcessArgs &args) override {
@@ -102,7 +116,7 @@ struct XLOC2Module : Module {
     uint64_t now = xemu::clock().now_ns.load();
     for (int e = 0; e < 2; ++e) {
       uint64_t until = encClickUntil[e].load();
-      bool want = now < until;
+      bool want = now >= encClickStart[e].load() && now < until;
       if (want != encClickActive[e]) {
         encClickActive[e] = want;
         xemu::press_encoder(e, want);
@@ -262,8 +276,7 @@ struct XlocEncoder : OpaqueWidget {
           if (altClicked) {
             // Alt/Option+click: press BOTH encoders together (the hardware
             // two-thumb gesture, e.g. stereo/mono toggle in audio setup).
-            module->clickEncoder(0, 150.f);
-            module->clickEncoder(1, 150.f);
+            module->dualClickEncoders();
           } else if (shiftHeld) {
             xemu::press_encoder(which, true);  // push+turn gesture
           }

@@ -44,12 +44,24 @@ void AudioStream::initialize_memory(audio_block_t *data, unsigned int num) {
   memory_used_max = 0;
 }
 
+// Overflow blocks are heap-allocated when the static pool is exhausted and
+// are marked with this pool index. On the Teensy, allocate() returning NULL
+// is silently tolerated by much firmware code (a NULL deref lands in mapped
+// ITCM); on host it would segfault, and we have RAM to spare — never return
+// NULL.
+static constexpr uint16_t kOverflowBlock = 0xFFFF;
+
 audio_block_t *AudioStream::allocate(void) {
   AudioLock lk;
-  if (!pool_data || pool_free.empty()) return nullptr;
-  uint16_t idx = pool_free.back();
-  pool_free.pop_back();
-  audio_block_t *b = &pool_data[idx];
+  audio_block_t *b;
+  if (pool_data && !pool_free.empty()) {
+    uint16_t idx = pool_free.back();
+    pool_free.pop_back();
+    b = &pool_data[idx];
+  } else {
+    b = new audio_block_t();
+    b->memory_pool_index = kOverflowBlock;
+  }
   b->ref_count = 1;
   ++memory_used;
   if (memory_used > memory_used_max) memory_used_max = memory_used;
@@ -63,7 +75,11 @@ void AudioStream::release(audio_block_t *block) {
     --block->ref_count;
   } else {
     block->ref_count = 0;
-    pool_free.push_back(block->memory_pool_index);
+    if (block->memory_pool_index == kOverflowBlock) {
+      delete block;
+    } else {
+      pool_free.push_back(block->memory_pool_index);
+    }
     if (memory_used > 0) --memory_used;
   }
 }

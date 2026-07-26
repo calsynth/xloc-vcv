@@ -19,6 +19,8 @@
 
 #include "../emu/xloc_emu.h"
 
+#include <AudioStream.h>
+
 #include <cmath>
 
 // Audio test-tone state: while enabled, run_ms() feeds a sine into the
@@ -57,10 +59,16 @@ static void audio_service(double ms) {
   }
 }
 
+// Optional real-time pacing per virtual ms (XEMU_DRIVE_SLOW_US env var).
+// Needed for sanitizer builds: the firmware loop() thread must get real CPU
+// time to consume UI events between scripted gestures.
+static int g_slow_us = 0;
+
 static void run_ms(int ms) {
   for (int i = 0; i < ms; ++i) {
     xemu::clock().step(1000000ull);
     audio_service(1.0);
+    if (g_slow_us) usleep(g_slow_us);
   }
 }
 
@@ -77,7 +85,7 @@ static int btn_pin(const std::string &s) {
   return -1;
 }
 
-static void dump() {
+static void dump(bool invert = false) {
   uint8_t fb[xemu::kFBSize];
   xemu::get_framebuffer(fb);
   // 2 rows per line using half blocks
@@ -85,7 +93,8 @@ static void dump() {
     std::string line;
     for (int x = 0; x < 128; ++x) {
       auto px = [&](int yy) {
-        return (fb[(yy >> 3) * 128 + x] >> (yy & 7)) & 1;
+        int v = (fb[(yy >> 3) * 128 + x] >> (yy & 7)) & 1;
+        return invert ? !v : v;
       };
       int a = px(y), b = px(y + 1);
       line += a && b ? "\xE2\x96\x88" : a ? "\xE2\x96\x80" : b ? "\xE2\x96\x84" : " ";
@@ -96,6 +105,7 @@ static void dump() {
 }
 
 int main(int argc, char **argv) {
+  if (const char *s = getenv("XEMU_DRIVE_SLOW_US")) g_slow_us = atoi(s);
   xemu::set_storage_dir(argc > 1 ? argv[1] : "./drive-storage");
   fprintf(stderr, "booting...\n");
   // On a fresh storage dir the firmware first-run flow blocks in
@@ -178,8 +188,13 @@ int main(int argc, char **argv) {
              g_out_peak, xemu::audio_out_available());
       fflush(stdout);
       g_out_sumsq = 0.0; g_out_peak = 0.f; g_out_frames = 0;
+    } else if (cmd == "amem") {
+      printf("AMEM used=%u max=%u\n", AudioMemoryUsage(), AudioMemoryUsageMax());
+      fflush(stdout);
     } else if (cmd == "dump") {
       dump();
+    } else if (cmd == "dumpi") {
+      dump(true);
     } else if (cmd == "quit") {
       break;
     }

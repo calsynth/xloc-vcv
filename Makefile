@@ -8,7 +8,7 @@ FLAGS += -Ishim/include -I$(FW) -I$(FW)/src/extern \
          -Ilib/teensy-audio \
          -Ifirmware/software/teensy-variable-playback/src -I.
 FLAGS += -DARDUINO_TEENSY41 -D__IMXRT1062__ -DARDUINO=10819 -DTEENSYDUINO=159 \
-         -DUSB_MIDI -DXEMU_HOST_DSP -DDRUMMAP_GRIDS2 \
+         -DUSB_MIDI -DXEMU_HOST -DXEMU_HOST_DSP -DDRUMMAP_GRIDS2 \
          -DENABLE_APP_CALIBR8OR -DENABLE_APP_SCENES -DENABLE_APP_PONG \
          -DOC_VERSION_EXTRA="\"_VCV\""
 

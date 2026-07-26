@@ -513,3 +513,48 @@ index 474cff63..45ba5322 100644
  
  template <typename T, T smoothing>
  struct SmoothedValue {
+diff --git a/software/src/util/util_ringbuffer.h b/software/src/util/util_ringbuffer.h
+index 3888c1de..25c002b1 100644
+--- a/software/src/util/util_ringbuffer.h
++++ b/software/src/util/util_ringbuffer.h
+@@ -25,6 +25,10 @@
+ #include <utility>
+ #include "util_macros.h"
+ 
++#ifdef XEMU_HOST
++#include <atomic>
++#endif
++
+ namespace util {
+ 
+ // There seem to be two types of common ring buffer implementations:
+@@ -84,16 +88,28 @@ public:
+ 
+   inline void Freeze(size_t buf_size) {
+     size_t start_ptr = (write_ptr_ - buf_size);
+-    poke_ptr_ = (poke_ptr_ >= write_ptr_) ? start_ptr : poke_ptr_;
++    size_t poke_ptr = poke_ptr_;
++    poke_ptr_ = (poke_ptr >= write_ptr_) ? start_ptr : poke_ptr;
+     poke_ptr_++;
+   } 
+ 
+ private:
+ 
+   T buffer_[size];
++#ifdef XEMU_HOST
++  // Host port: the "ISR" producer runs on a different thread. On weakly
++  // ordered CPUs (Apple Silicon) the volatile pointers allow the consumer
++  // to observe the advanced write pointer before the element data lands,
++  // yielding garbage reads. seq_cst atomics restore the implicit ordering
++  // the single-core MCU provided. (volatile is fine on the Teensy itself.)
++  std::atomic<size_t> write_ptr_;
++  std::atomic<size_t> read_ptr_;
++  std::atomic<size_t> poke_ptr_;
++#else
+   volatile size_t write_ptr_;
+   volatile size_t read_ptr_;
+   volatile size_t poke_ptr_;
++#endif
+ 
+   DISALLOW_COPY_AND_ASSIGN(RingBuffer);
+ };
