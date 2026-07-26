@@ -257,17 +257,35 @@ struct XlocButton : OpaqueWidget {
   XLOC2Module *module = nullptr;
   int pin = 0;
   bool held = false;
+  bool latched = false;  // right-click: hold the button down so an encoder
+                         // can be turned while it's "pressed" (applet select)
+
+  void setPin(bool down) {
+    if (module && module->isOwner) xemu::set_button(pin, down);
+  }
 
   void onButton(const ButtonEvent &e) override {
     if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
       if (e.action == GLFW_PRESS) {
-        held = true;
-        if (module && module->isOwner) xemu::set_button(pin, true);
+        if (latched) {
+          latched = false;  // click releases a latch
+          setPin(false);
+        } else {
+          held = true;
+          setPin(true);
+        }
         e.consume(this);
       } else if (e.action == GLFW_RELEASE) {
-        held = false;
-        if (module && module->isOwner) xemu::set_button(pin, false);
+        if (held) {
+          held = false;
+          setPin(false);
+        }
       }
+    }
+    if (e.button == GLFW_MOUSE_BUTTON_RIGHT && e.action == GLFW_PRESS) {
+      latched = !latched;
+      setPin(latched);
+      e.consume(this);
     }
     OpaqueWidget::onButton(e);
   }
@@ -275,7 +293,7 @@ struct XlocButton : OpaqueWidget {
   void onDragEnd(const DragEndEvent &e) override {
     if (held) {
       held = false;
-      if (module && module->isOwner) xemu::set_button(pin, false);
+      setPin(false);
     }
     OpaqueWidget::onDragEnd(e);
   }
@@ -283,19 +301,22 @@ struct XlocButton : OpaqueWidget {
   void draw(const DrawArgs &args) override {
     float r = std::min(box.size.x, box.size.y) * 0.5f;
     float cx = box.size.x * 0.5f, cy = box.size.y * 0.5f;
+    bool down = held || latched;
     // dark rim
     nvgBeginPath(args.vg);
     nvgCircle(args.vg, cx, cy, r);
     nvgFillColor(args.vg, nvgRGB(0x0A, 0x0A, 0x0A));
     nvgFill(args.vg);
-    // button cap: black, lit cool-white when held
+    // button cap: black, lit cool-white when held; amber when latched
     nvgBeginPath(args.vg);
     nvgCircle(args.vg, cx, cy, r - 1.0f);
-    nvgFillColor(args.vg, held ? nvgRGB(0x9F, 0xD8, 0xFF) : nvgRGB(0x1B, 0x1B, 0x1D));
+    nvgFillColor(args.vg, latched ? nvgRGB(0xFF, 0xC8, 0x66)
+                          : down  ? nvgRGB(0x9F, 0xD8, 0xFF)
+                                  : nvgRGB(0x1B, 0x1B, 0x1D));
     nvgFill(args.vg);
     // faint top highlight for a moulded look
     NVGpaint hl = nvgRadialGradient(args.vg, cx, cy - r * 0.35f, 0.5f, r,
-                                    nvgRGBA(0xFF, 0xFF, 0xFF, held ? 30 : 40),
+                                    nvgRGBA(0xFF, 0xFF, 0xFF, down ? 30 : 40),
                                     nvgRGBA(0xFF, 0xFF, 0xFF, 0));
     nvgBeginPath(args.vg);
     nvgCircle(args.vg, cx, cy, r - 1.0f);
@@ -394,7 +415,8 @@ struct XLOC2Widget : ModuleWidget {
       menu->addChild(createMenuLabel("Inactive: another XLOC2 instance owns the firmware"));
     } else {
       menu->addChild(createMenuLabel(xemu::booted() ? "Firmware: running" : "Firmware: booting..."));
-      menu->addChild(createMenuLabel("Shift+drag encoder = push+turn, right-click = long press"));
+      menu->addChild(createMenuLabel("Encoder: shift+drag = push+turn, right-click = long press"));
+      menu->addChild(createMenuLabel("Button: right-click = latch held (for button+encoder combos)"));
     }
   }
 };
