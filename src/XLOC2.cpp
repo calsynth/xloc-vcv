@@ -93,9 +93,10 @@ struct XLOC2Module : Module {
     encClickStart[which].store(now);
     encClickUntil[which].store(until);
     lastEncActivityNs.store(until);
-    // Any latched button held through this click has served its purpose:
-    // release it shortly after the press is over.
-    latchReleaseAtNs.store(until + 60000000ull);
+    // A SHORT click confirms a button+encoder combo — release any latched
+    // button shortly after. Long presses are their own gesture and should
+    // never cut a latch out from under active use.
+    if (virtualMs < 500.f) latchReleaseAtNs.store(until + 60000000ull);
   }
 
   void dualClickEncoders() {
@@ -329,62 +330,19 @@ struct XlocEncoder : OpaqueWidget {
         altClicked = false;
       }
     }
-    // Right button: drag = push+turn; plain click (no drag) = long press
-    // (1.6 s virtual), fired on release.
+    // Right button: consume so this widget becomes Rack's drag target and
+    // no context menu opens. The gesture itself (drag = push+turn, plain
+    // click = long press) is decided in onDragMove/onDragEnd, which Rack
+    // runs for right-button drags too.
     if (e.button == GLFW_MOUSE_BUTTON_RIGHT) {
       if (e.action == GLFW_PRESS) {
         rightHeld = true;
         rightTurning = false;
         rightAccum = 0.f;
-      } else if (e.action == GLFW_RELEASE) {
-        if (module && module->isOwner) {
-          if (rightTurning) {
-            xemu::press_encoder(which, false);  // end push+turn
-            module->noteEncoderActivity();
-          } else if (rightHeld) {
-            module->clickEncoder(which, 1600.f);  // long press
-          }
-        }
-        rightHeld = false;
-        rightTurning = false;
       }
       e.consume(this);
     }
     OpaqueWidget::onButton(e);
-  }
-
-  // Rack only runs its drag machinery for the left button, so track
-  // right-button drags from hover movement while the button is down.
-  void onHover(const HoverEvent &e) override {
-    if (rightHeld && module && module->isOwner) {
-      float zoom = getAbsoluteZoom();
-      rightAccum += -e.mouseDelta.y / zoom;
-      int detents = (int)(rightAccum / kPxPerDetent);
-      if (detents != 0) {
-        rightAccum -= detents * kPxPerDetent;
-        if (!rightTurning) {
-          rightTurning = true;
-          xemu::press_encoder(which, true);  // push starts with first detent
-        }
-        angle += detents * 0.30f;
-        xemu::turn_encoder(which, detents);
-        module->noteEncoderActivity();
-      }
-      e.consume(this);
-      return;
-    }
-    OpaqueWidget::onHover(e);
-  }
-
-  void onLeave(const LeaveEvent &e) override {
-    // Cursor left mid right-drag: never leave the virtual push stuck down.
-    if (rightTurning && module && module->isOwner) {
-      xemu::press_encoder(which, false);
-      module->noteEncoderActivity();
-    }
-    rightHeld = false;
-    rightTurning = false;
-    OpaqueWidget::onLeave(e);
   }
 
   // 'D' while hovering an encoder = dual press (keyboard experiment: tells
@@ -403,17 +361,54 @@ struct XlocEncoder : OpaqueWidget {
 
   void onDragMove(const DragMoveEvent &e) override {
     float zoom = getAbsoluteZoom();
-    dragAccum += -e.mouseDelta.y / zoom;
+    float d = -e.mouseDelta.y / zoom;
+    // Any encoder handling counts as activity (keeps button latches alive
+    // even between detents while the hand is on the encoder).
+    if (module && module->isOwner && d != 0.f) module->noteEncoderActivity();
+
+    if (e.button == GLFW_MOUSE_BUTTON_RIGHT) {
+      // Right-drag = push+turn: the virtual push engages with the first
+      // detent and holds until the button is released.
+      rightAccum += d;
+      int detents = (int)(rightAccum / kPxPerDetent);
+      if (detents != 0) {
+        rightAccum -= detents * kPxPerDetent;
+        angle += detents * 0.30f;
+        if (module && module->isOwner) {
+          if (!rightTurning) {
+            rightTurning = true;
+            xemu::press_encoder(which, true);
+          }
+          xemu::turn_encoder(which, detents);
+        }
+      }
+      return;
+    }
+
+    dragAccum += d;
     int detents = (int)(dragAccum / kPxPerDetent);
     if (detents != 0) {
       dragAccum -= detents * kPxPerDetent;
       dragged = true;
       angle += detents * 0.30f;
-      if (module && module->isOwner) {
-        xemu::turn_encoder(which, detents);
-        module->noteEncoderActivity();
-      }
+      if (module && module->isOwner) xemu::turn_encoder(which, detents);
     }
+  }
+
+  void onDragEnd(const DragEndEvent &e) override {
+    if (e.button == GLFW_MOUSE_BUTTON_RIGHT) {
+      if (module && module->isOwner) {
+        if (rightTurning) {
+          xemu::press_encoder(which, false);  // end push+turn
+          module->noteEncoderActivity();
+        } else if (rightHeld) {
+          module->clickEncoder(which, 1600.f);  // plain right-click = long press
+        }
+      }
+      rightHeld = false;
+      rightTurning = false;
+    }
+    OpaqueWidget::onDragEnd(e);
   }
 
   void draw(const DrawArgs &args) override {
