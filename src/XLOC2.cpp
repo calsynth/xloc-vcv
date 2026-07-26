@@ -267,17 +267,23 @@ struct XlocEncoder : OpaqueWidget {
   static constexpr float kPxPerDetent = 12.f;
 
   void onButton(const ButtonEvent &e) override {
+    INFO("XLOC2 enc %d btn=%d action=%d mods=0x%x", which, e.button, e.action,
+         e.mods);
+    // Middle-click: dual encoder press (modifier-free alternative)
+    if (e.button == GLFW_MOUSE_BUTTON_MIDDLE && e.action == GLFW_PRESS) {
+      if (module && module->isOwner) module->dualClickEncoders();
+      e.consume(this);
+      return;
+    }
     if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
       if (e.action == GLFW_PRESS) {
         dragged = false;
         int mods = e.mods & RACK_MOD_MASK;
         shiftHeld = mods == GLFW_MOD_SHIFT;
-        // Any click with Alt/Option involved counts, even if the OS tags
-        // extra modifier bits onto the event.
-        altClicked = (mods & GLFW_MOD_ALT) != 0;
-        if (mods)
-          INFO("XLOC2 encoder %d click mods=0x%x (raw 0x%x) shift=%d alt=%d",
-               which, mods, e.mods, (int)shiftHeld, (int)altClicked);
+        // Alt/Option+click or Cmd/Ctrl+click: dual encoder press. Accept
+        // either modifier (and tolerate extra bits) — we've seen macOS
+        // setups where Option never reaches the widget.
+        altClicked = (mods & (GLFW_MOD_ALT | GLFW_MOD_SUPER | GLFW_MOD_CONTROL)) != 0;
         if (module && module->isOwner) {
           if (altClicked) {
             // Alt/Option+click: press BOTH encoders together (the hardware
