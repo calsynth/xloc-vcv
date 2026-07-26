@@ -17,6 +17,11 @@ FLAGS += -DARDUINO_TEENSY41 -D__IMXRT1062__ -DARDUINO=10819 -DTEENSYDUINO=159 \
 EXTRA_CXXFLAGS += -std=gnu++17 -Wno-unused-parameter \
                   -Wno-unused-variable -Wno-sign-compare
 
+# macOS: Rack targets 10.9, but the firmware uses std::variant/std::get whose
+# libc++ availability annotations demand 10.13+. Every Mac that can run Rack 2
+# has the needed runtime; disable the annotations. Inert on GCC/libstdc++.
+FLAGS += -D_LIBCPP_DISABLE_AVAILABILITY
+
 # Plugin sources
 SOURCES += src/plugin.cpp src/XLOC2.cpp
 SOURCES += emu/xloc_emu.cpp
