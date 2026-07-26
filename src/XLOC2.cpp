@@ -88,6 +88,7 @@ struct XLOC2Module : Module {
     // detector (AudioAppletSubapp::HandleEncoderButtonEvent) arms on a
     // single-button DOWN and fires when the second DOWN sees both held.
     // Perfectly simultaneous presses never arm it.
+    INFO("XLOC2 dualClickEncoders");
     uint64_t now = xemu::clock().now_ns.load();
     encClickStart[0].store(now);
     encClickUntil[0].store(now + 170000000ull);           // L: 0..170 ms
@@ -271,7 +272,12 @@ struct XlocEncoder : OpaqueWidget {
         dragged = false;
         int mods = e.mods & RACK_MOD_MASK;
         shiftHeld = mods == GLFW_MOD_SHIFT;
-        altClicked = mods == GLFW_MOD_ALT;
+        // Any click with Alt/Option involved counts, even if the OS tags
+        // extra modifier bits onto the event.
+        altClicked = (mods & GLFW_MOD_ALT) != 0;
+        if (mods)
+          INFO("XLOC2 encoder %d click mods=0x%x (raw 0x%x) shift=%d alt=%d",
+               which, mods, e.mods, (int)shiftHeld, (int)altClicked);
         if (module && module->isOwner) {
           if (altClicked) {
             // Alt/Option+click: press BOTH encoders together (the hardware
@@ -317,6 +323,17 @@ struct XlocEncoder : OpaqueWidget {
   void draw(const DrawArgs &args) override {
     float r = std::min(box.size.x, box.size.y) * 0.5f;
     float cx = box.size.x * 0.5f, cy = box.size.y * 0.5f;
+
+    // pressed indicator: amber ring while the emulated push is active
+    // (shift+drag, alt+click dual press, or a timed click in flight)
+    bool pressed = shiftHeld || (module && module->encClickActive[which]);
+    if (pressed) {
+      nvgBeginPath(args.vg);
+      nvgCircle(args.vg, cx, cy, r + 1.5f);
+      nvgStrokeColor(args.vg, nvgRGB(0xFF, 0xC8, 0x66));
+      nvgStrokeWidth(args.vg, 2.f);
+      nvgStroke(args.vg);
+    }
 
     // knurled body
     nvgBeginPath(args.vg);
@@ -511,6 +528,8 @@ struct XLOC2Widget : ModuleWidget {
       menu->addChild(createMenuLabel("Inactive: another XLOC2 instance owns the firmware"));
     } else {
       menu->addChild(createMenuLabel(xemu::booted() ? "Firmware: running" : "Firmware: booting..."));
+      menu->addChild(createMenuItem("Press both encoders", "",
+                                    [m]() { m->dualClickEncoders(); }));
       menu->addChild(createMenuLabel("Encoder: shift+drag = push+turn, right-click = long press"));
       menu->addChild(createMenuLabel("Encoder: alt/option+click = press both encoders"));
       menu->addChild(createMenuLabel("Button: right-click = latch held (for button+encoder combos)"));
