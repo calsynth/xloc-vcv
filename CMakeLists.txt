@@ -91,3 +91,6 @@ target_link_libraries(xloc_core PUBLIC Threads::Threads)
 
 add_executable(headless_test test/headless.cpp)
 target_link_libraries(headless_test PRIVATE xloc_core)
+
+add_executable(drive test/drive.cpp)
+target_link_libraries(drive PRIVATE xloc_core)

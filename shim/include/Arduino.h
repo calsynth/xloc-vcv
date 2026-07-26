@@ -103,12 +103,17 @@ typedef unsigned char uchar;
 #include <type_traits>
 // Teensy 4 core defines heterogeneous min/max templates in the global
 // namespace (std::min/std::max still work when qualified).
+// NOTE: the return type must DECAY — `decltype(a < b ? a : b)` on same-type
+// arguments is an lvalue reference to a stack parameter (dangling => UB;
+// Apple clang's optimizer turned menu draws into traps because of this).
 template <class A, class B>
-static constexpr auto min(A a, B b) -> decltype(a < b ? a : b) {
+static constexpr typename std::decay<decltype(true ? std::declval<A>() : std::declval<B>())>::type
+min(A a, B b) {
   return a < b ? a : b;
 }
 template <class A, class B>
-static constexpr auto max(A a, B b) -> decltype(a > b ? a : b) {
+static constexpr typename std::decay<decltype(true ? std::declval<A>() : std::declval<B>())>::type
+max(A a, B b) {
   return a > b ? a : b;
 }
 template <typename T, typename L, typename H>
