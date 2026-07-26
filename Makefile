@@ -42,6 +42,13 @@ DISTRIBUTABLES += res
 
 include $(RACK_DIR)/plugin.mk
 
+# clang only (Apple or osxcross): allow C++17 aligned new/delete despite
+# Rack's -mmacosx-version-min=10.9 (runtime support exists on any macOS that
+# can run Rack 2). GCC doesn't know this flag and doesn't need it.
+ifneq ($(findstring clang,$(shell $(CXX) --version 2>/dev/null)),)
+FLAGS += -faligned-allocation
+endif
+
 .PHONY: apply-patches
 apply-patches:
 	cd firmware && git apply --3way ../patches/*.patch || true
