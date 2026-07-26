@@ -50,16 +50,21 @@ namespace OC {
   if (++ratelimit < 3) return;
   ratelimit = 0;
 
-  // xemu::adc_read_raw(n) returns panel CV jack n+1; update<ADC_CHANNEL_n>
-  // stores it at the storage index the XLOC2 remap assigned to that jack.
-  update<ADC_CHANNEL_1>(xemu::adc_read_raw(0));
-  update<ADC_CHANNEL_2>(xemu::adc_read_raw(1));
-  update<ADC_CHANNEL_3>(xemu::adc_read_raw(2));
-  update<ADC_CHANNEL_4>(xemu::adc_read_raw(3));
-  update<ADC_CHANNEL_5>(xemu::adc_read_raw(4));
-  update<ADC_CHANNEL_6>(xemu::adc_read_raw(5));
-  update<ADC_CHANNEL_7>(xemu::adc_read_raw(6));
-  update<ADC_CHANNEL_8>(xemu::adc_read_raw(7));
+  // Reproduce the XLOC2 PCB wiring anomaly: the two panel CV columns are
+  // cross-wired to the ADC, so physical scan slot n carries panel jack
+  // (n+4)%8. The firmware compensates via the CalSynthXL ADC_CHANNEL_*
+  // remap in OC_gpio.cpp (CH1=4 ... CH5=0 ...); feeding jacks 1:1 here
+  // would make that compensation CREATE the swap instead of cancel it.
+  // update<ADC_CHANNEL_n> emulates the hardware's "scan slot n-1" store:
+  // it must receive what the wiring puts on that slot.
+  update<ADC_CHANNEL_1>(xemu::adc_read_raw(4));
+  update<ADC_CHANNEL_2>(xemu::adc_read_raw(5));
+  update<ADC_CHANNEL_3>(xemu::adc_read_raw(6));
+  update<ADC_CHANNEL_4>(xemu::adc_read_raw(7));
+  update<ADC_CHANNEL_5>(xemu::adc_read_raw(0));
+  update<ADC_CHANNEL_6>(xemu::adc_read_raw(1));
+  update<ADC_CHANNEL_7>(xemu::adc_read_raw(2));
+  update<ADC_CHANNEL_8>(xemu::adc_read_raw(3));
 }
 
 /*static*/ void ADC::Read(IOFrame *ioframe) {
