@@ -247,6 +247,7 @@ struct XlocEncoder : OpaqueWidget {
   float angle = 0.f;
   bool dragged = false;
   bool shiftHeld = false;
+  bool altClicked = false;
 
   static constexpr float kPxPerDetent = 12.f;
 
@@ -254,19 +255,30 @@ struct XlocEncoder : OpaqueWidget {
     if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
       if (e.action == GLFW_PRESS) {
         dragged = false;
-        shiftHeld = (e.mods & RACK_MOD_MASK) == GLFW_MOD_SHIFT;
-        if (shiftHeld && module && module->isOwner)
-          xemu::press_encoder(which, true);  // push+turn gesture
+        int mods = e.mods & RACK_MOD_MASK;
+        shiftHeld = mods == GLFW_MOD_SHIFT;
+        altClicked = mods == GLFW_MOD_ALT;
+        if (module && module->isOwner) {
+          if (altClicked) {
+            // Alt/Option+click: press BOTH encoders together (the hardware
+            // two-thumb gesture, e.g. stereo/mono toggle in audio setup).
+            module->clickEncoder(0, 150.f);
+            module->clickEncoder(1, 150.f);
+          } else if (shiftHeld) {
+            xemu::press_encoder(which, true);  // push+turn gesture
+          }
+        }
         e.consume(this);
       } else if (e.action == GLFW_RELEASE) {
         if (module && module->isOwner) {
           if (shiftHeld) {
             xemu::press_encoder(which, false);
-          } else if (!dragged) {
+          } else if (!dragged && !altClicked) {
             module->clickEncoder(which, 80.f);  // short press
           }
         }
         shiftHeld = false;
+        altClicked = false;
       }
     }
     // Right-click = long press (1.5 s virtual)
@@ -487,6 +499,7 @@ struct XLOC2Widget : ModuleWidget {
     } else {
       menu->addChild(createMenuLabel(xemu::booted() ? "Firmware: running" : "Firmware: booting..."));
       menu->addChild(createMenuLabel("Encoder: shift+drag = push+turn, right-click = long press"));
+      menu->addChild(createMenuLabel("Encoder: alt/option+click = press both encoders"));
       menu->addChild(createMenuLabel("Button: right-click = latch held (for button+encoder combos)"));
     }
   }
