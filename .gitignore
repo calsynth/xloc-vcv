@@ -5,3 +5,4 @@ dist/
 plugin.so
 plugin.dylib
 plugin.dll
+build-*/

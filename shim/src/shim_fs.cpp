@@ -5,7 +5,7 @@
 #include "../../emu/xloc_emu.h"
 
 static void mkdirs(const std::string &p) {
-  if (!p.empty()) ::mkdir(p.c_str(), 0755);
+  if (!p.empty()) xemu_mkdir(p.c_str());
 }
 
 bool SDClass::begin(uint8_t) {

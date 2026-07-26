@@ -80,9 +80,7 @@ target_compile_definitions(xloc_core PUBLIC
 
 target_compile_options(xloc_core PRIVATE
   -fno-exceptions
-  -fpermissive
   -Wall
-  -Wno-permissive
   -Wno-unused-parameter
   -Wno-unused-variable
   -Wno-sign-compare

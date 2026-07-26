@@ -44,6 +44,14 @@
 typedef bool boolean;
 typedef uint8_t byte;
 
+// POSIX-ish typedefs the firmware uses; glibc/macOS provide them, mingw not.
+#ifdef _WIN32
+typedef unsigned int uint;
+typedef unsigned short ushort;
+typedef unsigned long ulong;
+typedef unsigned char uchar;
+#endif
+
 #define HIGH 1
 #define LOW 0
 #define INPUT 0
@@ -219,7 +227,11 @@ long xemu_random_max(long max);
 long xemu_random_range(long lo, long hi);
 #ifdef __cplusplus
 }
-// Arduino random() overloads (no-arg random() comes from the host libc)
+// Arduino random() overloads (no-arg random() comes from the host libc on
+// Linux/macOS; mingw has none, so provide it there)
+#ifdef _WIN32
+static inline long random() { return xemu_random_max(2147483647L); }
+#endif
 template <typename T>
 static inline long random(T max_) {
   return xemu_random_max((long)max_);
@@ -304,6 +316,8 @@ public:
   template <typename T> size_t println(T v) { size_t n = print(v); return n + write("\n"); }
   size_t println(long v, int base) { size_t n = print(v, base); return n + write("\n"); }
   size_t println(unsigned long v, int base) { size_t n = print(v, base); return n + write("\n"); }
+  size_t println(long long v, int base) { size_t n = print(v, base); return n + write("\n"); }
+  size_t println(unsigned long long v, int base) { size_t n = print(v, base); return n + write("\n"); }
   size_t println(int v, int base) { size_t n = print((long)v, base); return n + write("\n"); }
   size_t println(double v, int digits) { size_t n = print(v, digits); return n + write("\n"); }
   size_t println() { return write("\n"); }

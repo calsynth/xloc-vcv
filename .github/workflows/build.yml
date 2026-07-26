@@ -60,7 +60,15 @@ jobs:
 
       - name: Download Rack SDK
         run: |
-          curl -L -o sdk.zip "https://vcvrack.com/downloads/Rack-SDK-${RACK_SDK_VERSION}-${{ matrix.sdk }}.zip"
+          ok=""
+          for name in "Rack-SDK-${RACK_SDK_VERSION}-${{ matrix.sdk }}.zip" \
+                      "Rack-SDK-${RACK_SDK_VERSION}-mac-x64+arm64.zip" \
+                      "Rack-SDK-${RACK_SDK_VERSION}-mac.zip"; do
+            echo "trying $name"
+            if curl -fL -o sdk.zip "https://vcvrack.com/downloads/$name"; then ok="$name"; break; fi
+          done
+          if [ -z "$ok" ]; then echo "no SDK found"; exit 1; fi
+          echo "downloaded $ok"
           unzip -q sdk.zip
 
       - name: Build (Windows)

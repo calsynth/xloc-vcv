@@ -15,6 +15,14 @@
 #include <string>
 #include <vector>
 
+// mingw's mkdir() takes a single argument
+#ifdef _WIN32
+#include <direct.h>
+static inline int xemu_mkdir(const char *p) { return ::_mkdir(p); }
+#else
+static inline int xemu_mkdir(const char *p) { return ::mkdir(p, 0755); }
+#endif
+
 #define FILE_READ 0
 #define FILE_WRITE 1
 #define FILE_WRITE_BEGIN 2
@@ -179,7 +187,7 @@ public:
   }
   bool remove(const char *path) { return ::remove(host_path(path).c_str()) == 0; }
   bool mkdir(const char *path) {
-    return ::mkdir(host_path(path).c_str(), 0755) == 0;
+    return xemu_mkdir(host_path(path).c_str()) == 0;
   }
   bool rename(const char *from, const char *to) {
     return ::rename(host_path(from).c_str(), host_path(to).c_str()) == 0;
@@ -204,7 +212,7 @@ protected:
       std::string part = dir.substr(start, next == std::string::npos ? std::string::npos : next - start);
       if (!part.empty()) {
         acc += (acc.empty() ? "" : "/") + part;
-        ::mkdir(acc.c_str(), 0755);
+        xemu_mkdir(acc.c_str());
       }
       if (next == std::string::npos) break;
       start = next + 1;

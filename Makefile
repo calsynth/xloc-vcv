@@ -11,10 +11,11 @@ FLAGS += -DARDUINO_TEENSY41 -D__IMXRT1062__ -DARDUINO=10819 -DTEENSYDUINO=159 \
          -DENABLE_APP_CALIBR8OR -DENABLE_APP_SCENES -DENABLE_APP_PONG \
          -DOC_VERSION_EXTRA="\"_VCV\""
 
-# Firmware needs GNU extensions and permissive C++ (Teensyduino builds use
-# -fpermissive); Rack's compile.mk sets -std=c++11, ours must come later.
-EXTRA_CXXFLAGS += -std=gnu++17 -fpermissive -Wno-unused-parameter \
-                  -Wno-unused-variable -Wno-sign-compare -Wno-class-memaccess
+# Firmware needs GNU extensions and C++17; Rack's compile.mk sets -std=c++11,
+# ours must come later. (No -fpermissive: Apple clang doesn't know it, and the
+# host-portability patches fixed the const-correctness issues properly.)
+EXTRA_CXXFLAGS += -std=gnu++17 -Wno-unused-parameter \
+                  -Wno-unused-variable -Wno-sign-compare
 
 # Plugin sources
 SOURCES += src/plugin.cpp src/XLOC2.cpp
