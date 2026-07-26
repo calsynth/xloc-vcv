@@ -12,14 +12,56 @@
 //   quit
 #include <cstdio>
 #include <cstring>
+#include <unistd.h>
 #include <iostream>
 #include <sstream>
 #include <string>
 
 #include "../emu/xloc_emu.h"
 
+#include <cmath>
+
+// Audio test-tone state: while enabled, run_ms() feeds a sine into the
+// emulated codec input and gathers stats from the codec output.
+static bool g_tone_on = false;
+static double g_tone_freq = 220.0, g_tone_phase = 0.0, g_frame_accum = 0.0;
+static double g_out_sumsq = 0.0;
+static float g_out_peak = 0.f;
+static long g_out_frames = 0;
+
+static void audio_service(double ms) {
+  g_frame_accum += ms * 44.1;
+  int frames = (int)g_frame_accum;
+  if (frames <= 0) return;
+  g_frame_accum -= frames;
+  if (frames > 4096) frames = 4096;
+  static float buf[4096 * 2];
+  if (g_tone_on) {
+    for (int i = 0; i < frames; ++i) {
+      float s = 0.5f * (float)sin(g_tone_phase);
+      g_tone_phase += 2.0 * M_PI * g_tone_freq / 44100.0;
+      buf[i * 2] = buf[i * 2 + 1] = s;
+    }
+    xemu::audio_in_write(buf, frames);
+  }
+  int avail = xemu::audio_out_available();
+  int take = avail < frames ? avail : frames;
+  if (take > 0) {
+    xemu::audio_out_read(buf, take);
+    for (int i = 0; i < take * 2; ++i) {
+      g_out_sumsq += (double)buf[i] * buf[i];
+      float a = fabsf(buf[i]);
+      if (a > g_out_peak) g_out_peak = a;
+    }
+    g_out_frames += take;
+  }
+}
+
 static void run_ms(int ms) {
-  for (int i = 0; i < ms; ++i) xemu::clock().step(1000000ull);
+  for (int i = 0; i < ms; ++i) {
+    xemu::clock().step(1000000ull);
+    audio_service(1.0);
+  }
 }
 
 static int enc(const std::string &s) { return (s == "L" || s == "l") ? 0 : 1; }
@@ -56,7 +98,32 @@ static void dump() {
 int main(int argc, char **argv) {
   xemu::set_storage_dir(argc > 1 ? argv[1] : "./drive-storage");
   fprintf(stderr, "booting...\n");
-  xemu::boot();
+  // On a fresh storage dir the firmware first-run flow blocks in
+  // Ui::ConfirmReset() waiting for a button. Boot non-blocking, and if setup()
+  // hasn't finished after the splash would have elapsed, answer the prompt
+  // with a right-encoder press ([OK]) like a user would on real hardware.
+  xemu::boot_async();
+  // Step virtual time with a little real time per ms: setup() work (EEPROM
+  // erase, config save) runs on the firmware thread in real time.
+  auto step_wait = [](int ms) {
+    for (int i = 0; i < ms && !xemu::booted(); ++i) {
+      xemu::clock().step(1000000ull);
+      usleep(200);
+    }
+  };
+  step_wait(4000);
+  for (int attempt = 0; !xemu::booted() && attempt < 4; ++attempt) {
+    fprintf(stderr, "first-run prompt: confirming reset (attempt %d)\n", attempt + 1);
+    xemu::press_encoder(1, true);
+    for (int i = 0; i < 100; ++i) { xemu::clock().step(1000000ull); usleep(200); }
+    xemu::press_encoder(1, false);
+    step_wait(8000);
+  }
+  if (!xemu::booted()) {
+    fprintf(stderr, "boot failed; screen:\n");
+    dump();
+    return 1;
+  }
   run_ms(500);
   fprintf(stderr, "ready\n");
 
@@ -94,6 +161,23 @@ int main(int argc, char **argv) {
     } else if (cmd == "cv") {
       xemu::set_cv_volts(atoi(a1.c_str()), atof(a2.c_str()));
       run_ms(20);
+    } else if (cmd == "ehold") {
+      xemu::press_encoder(enc(a1), true);
+      run_ms(30);
+    } else if (cmd == "erel") {
+      xemu::press_encoder(enc(a1), false);
+      run_ms(30);
+    } else if (cmd == "tone") {
+      g_tone_on = true;
+      if (!a1.empty()) g_tone_freq = atof(a1.c_str());
+    } else if (cmd == "notone") {
+      g_tone_on = false;
+    } else if (cmd == "astat") {
+      double rms = g_out_frames ? sqrt(g_out_sumsq / (g_out_frames * 2)) : 0.0;
+      printf("ASTAT frames=%ld rms=%.5f peak=%.5f ring=%d\n", g_out_frames, rms,
+             g_out_peak, xemu::audio_out_available());
+      fflush(stdout);
+      g_out_sumsq = 0.0; g_out_peak = 0.f; g_out_frames = 0;
     } else if (cmd == "dump") {
       dump();
     } else if (cmd == "quit") {

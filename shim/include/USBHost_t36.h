@@ -5,12 +5,18 @@
 #include <chrono>
 #include <thread>
 
+namespace xemu {
+void maybe_park_current_thread();
+}
+
 class USBHost {
 public:
   void begin() {}
   void Task() {
-    // Called once per firmware main-loop iteration: throttle the loop
-    // thread so it doesn't spin a host core at 100%.
+    // Called once per firmware main-loop iteration: park here at process
+    // exit (see xemu_emu.h), and throttle the loop thread so it doesn't
+    // spin a host core at 100%.
+    xemu::maybe_park_current_thread();
     std::this_thread::sleep_for(std::chrono::microseconds(200));
   }
 };

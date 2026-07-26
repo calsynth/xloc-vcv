@@ -35,6 +35,16 @@ struct XLOC2Module : Module {
 
   bool trigHigh[4] = {false, false, false, false};
 
+  // ---- AUDIO jacks <-> 44.1 kHz engine rings (linear-interp SRC) ----
+  // input side: Rack rate -> 44.1k
+  float inPrevL = 0.f, inPrevR = 0.f;
+  double inPhase = 0.0;   // position within current Rack sample, in 44.1k steps
+  // output side: 44.1k -> Rack rate
+  float outA[2] = {0.f, 0.f}, outB[2] = {0.f, 0.f};  // consecutive 44.1k frames
+  double outPhase = 1.0;  // >=1 means need next frame
+  bool outPrimed = false;
+  int depthCheck = 0;
+
   XLOC2Module() {
     config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
     for (int i = 0; i < 8; ++i)
@@ -44,10 +54,10 @@ struct XLOC2Module : Module {
     static const char *outNames = "ABCDEFGH";
     for (int i = 0; i < 8; ++i)
       configOutput(OUTA_OUTPUT + i, string::f("CV %c", outNames[i]));
-    configInput(AUDIO_L_INPUT, "Audio L (audio applets not yet ported — inert)");
-    configInput(AUDIO_R_INPUT, "Audio R (audio applets not yet ported — inert)");
-    configOutput(AUDIO_L_OUTPUT, "Audio L (audio applets not yet ported — silent)");
-    configOutput(AUDIO_R_OUTPUT, "Audio R (audio applets not yet ported — silent)");
+    configInput(AUDIO_L_INPUT, "Audio L");
+    configInput(AUDIO_R_INPUT, "Audio R");
+    configOutput(AUDIO_L_OUTPUT, "Audio L");
+    configOutput(AUDIO_R_OUTPUT, "Audio R");
 
     XLOC2Module *expected = nullptr;
     isOwner = owner.compare_exchange_strong(expected, this);
@@ -99,15 +109,76 @@ struct XLOC2Module : Module {
       }
     }
 
+    // Audio input jacks -> engine (resample Rack rate -> 44.1k, linear)
+    {
+      float curL = inputs[AUDIO_L_INPUT].getVoltage() / 5.f;   // 5 Vpp reference
+      float curR = inputs[AUDIO_R_INPUT].getVoltage() / 5.f;
+      const double ratio = xemu::kAudioSampleRate * args.sampleTime;  // 44.1k frames per Rack sample
+      inPhase += ratio;
+      while (inPhase >= 1.0) {
+        inPhase -= 1.0;
+        // fraction through this Rack sample for the emitted 44.1k frame
+        double frac = 1.0 - inPhase / ratio;
+        if (frac < 0.0) frac = 0.0;
+        if (frac > 1.0) frac = 1.0;
+        float lr[2] = {(float)(inPrevL + (curL - inPrevL) * frac),
+                       (float)(inPrevR + (curR - inPrevR) * frac)};
+        xemu::audio_in_write(lr, 1);
+      }
+      inPrevL = curL;
+      inPrevR = curR;
+    }
+
     // Advance the firmware by one sample of virtual time; this fires the
-    // 16.666 kHz core ISR and 1 kHz UI ISR at their due times.
+    // 16.666 kHz core ISR, 1 kHz UI ISR and the 344.5 Hz audio update.
     xemu::clock().step((uint64_t)(args.sampleTime * 1e9));
 
-    // Collect outputs
+    // Collect CV outputs
     for (int i = 0; i < 8; ++i)
       outputs[OUTA_OUTPUT + i].setVoltage(xemu::get_cv_out_volts(i));
-    outputs[AUDIO_L_OUTPUT].setVoltage(0.f);  // phase 3: audio applet DSP
-    outputs[AUDIO_R_OUTPUT].setVoltage(0.f);
+
+    // Engine -> audio output jacks (resample 44.1k -> Rack rate, linear)
+    {
+      // Latency management: prime to a small level; drain if the ring grows.
+      if (++depthCheck >= 256) {
+        depthCheck = 0;
+        int avail = xemu::audio_out_available();
+        if (avail > 2048) {
+          float junk[2];
+          while (avail-- > 512) xemu::audio_out_read(junk, 1);
+        }
+      }
+      if (!outPrimed) {
+        if (xemu::audio_out_available() >= 256) {
+          xemu::audio_out_read(outA, 1);
+          xemu::audio_out_read(outB, 1);
+          outPhase = 0.0;
+          outPrimed = true;
+        }
+      }
+      float ol = 0.f, orr = 0.f;
+      if (outPrimed) {
+        const double ratio = xemu::kAudioSampleRate * args.sampleTime;
+        outPhase += ratio;
+        while (outPhase >= 1.0) {
+          outPhase -= 1.0;
+          outA[0] = outB[0];
+          outA[1] = outB[1];
+          if (xemu::audio_out_available() > 0) {
+            xemu::audio_out_read(outB, 1);
+          } else {
+            outPrimed = false;  // underrun: re-prime
+            outPhase = 1.0;
+            break;
+          }
+        }
+        float t = (float)outPhase;
+        ol = outA[0] + (outB[0] - outA[0]) * t;
+        orr = outA[1] + (outB[1] - outA[1]) * t;
+      }
+      outputs[AUDIO_L_OUTPUT].setVoltage(ol * 5.f);
+      outputs[AUDIO_R_OUTPUT].setVoltage(orr * 5.f);
+    }
   }
 };
 

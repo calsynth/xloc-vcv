@@ -28,6 +28,7 @@ void set_self_clocking(bool);
 }
 
 extern "C" void delay(uint32_t ms) {
+  xemu::maybe_park_current_thread();
   if (xemu::self_clocking()) {
     // Boot phase: nobody else advances the clock. Step it ourselves in 1 ms
     // slices so timers fire at their proper times.
@@ -36,6 +37,7 @@ extern "C" void delay(uint32_t ms) {
     // Wait (in real time) for virtual time to advance, driven by frontend.
     uint64_t target = xemu::clock().now_ns.load() + (uint64_t)ms * 1000000ull;
     while (xemu::clock().now_ns.load() < target) {
+      xemu::maybe_park_current_thread();
       std::this_thread::sleep_for(std::chrono::microseconds(200));
     }
   }

@@ -41,8 +41,33 @@ set(XLOC_FW_SOURCES
   ${FW}/src/util/util_settings.cpp
 )
 
+set(TEENSY_AUDIO ${CMAKE_CURRENT_SOURCE_DIR}/lib/teensy-audio)
+set(XLOC_AUDIO_SOURCES
+  ${TEENSY_AUDIO}/synth_waveform.cpp
+  ${TEENSY_AUDIO}/synth_dc.cpp
+  ${TEENSY_AUDIO}/synth_whitenoise.cpp
+  ${TEENSY_AUDIO}/synth_pinknoise.cpp
+  ${TEENSY_AUDIO}/synth_karplusstrong.cpp
+  ${TEENSY_AUDIO}/filter_variable.cpp
+  ${TEENSY_AUDIO}/filter_ladder.cpp
+  ${TEENSY_AUDIO}/filter_biquad.cpp
+  ${TEENSY_AUDIO}/mixer.cpp
+  ${TEENSY_AUDIO}/effect_freeverb.cpp
+  ${TEENSY_AUDIO}/effect_wavefolder.cpp
+  ${TEENSY_AUDIO}/effect_delay.cpp
+  ${TEENSY_AUDIO}/analyze_peak.cpp
+  ${TEENSY_AUDIO}/analyze_rms.cpp
+  ${TEENSY_AUDIO}/analyze_notefreq.cpp
+  ${TEENSY_AUDIO}/record_queue.cpp
+  ${TEENSY_AUDIO}/play_queue.cpp
+  ${TEENSY_AUDIO}/data_waveforms.c
+  ${TEENSY_AUDIO}/data_bandlimit_step.c
+)
+
 set(XLOC_SHIM_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/emu/xloc_emu.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shim/src/shim_audiostream.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/shim/src/shim_audio_io.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/shim/src/shim_arduino.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/shim/src/shim_eeprom.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/shim/src/shim_fs.cpp
@@ -53,12 +78,13 @@ set(XLOC_SHIM_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/shim/src/emu_SH1106.cpp
 )
 
-add_library(xloc_core STATIC ${XLOC_FW_SOURCES} ${XLOC_SHIM_SOURCES})
+add_library(xloc_core STATIC ${XLOC_FW_SOURCES} ${XLOC_SHIM_SOURCES} ${XLOC_AUDIO_SOURCES})
 
 target_include_directories(xloc_core BEFORE PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/shim/include
 )
 target_include_directories(xloc_core PUBLIC
+  ${TEENSY_AUDIO}
   ${FIRMWARE_DIR}/software/teensy-variable-playback/src
   ${FW}
   ${FW}/src/extern
@@ -71,6 +97,7 @@ target_compile_definitions(xloc_core PUBLIC
   ARDUINO=10819
   TEENSYDUINO=159
   USB_MIDI
+  XEMU_HOST_DSP
   DRUMMAP_GRIDS2
   ENABLE_APP_CALIBR8OR
   ENABLE_APP_SCENES

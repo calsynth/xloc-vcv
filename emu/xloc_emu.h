@@ -98,6 +98,7 @@ struct Clock {
   std::recursive_mutex isr_mutex;
 
   int add_timer(std::function<void()> fn, uint64_t period_us);
+  int add_timer_ns(std::function<void()> fn, uint64_t period_ns);
   void remove_timer(int idx);
 
   // Advance virtual time by dt_ns, firing due timers in order.
@@ -129,6 +130,16 @@ void boot();
 void shutdown();
 bool booted();
 
+// Firmware-thread parking, used at process exit. Static destructors tear
+// down AudioStream-derived globals while the detached loop() thread is still
+// dispatching virtual calls on them ("pure virtual method called" aborts).
+// boot_async() registers an atexit handler that requests a park and keeps
+// stepping virtual time until the loop thread confirms it is parked (it
+// checks in the USB Task / delay shims, hit every loop iteration).
+void request_park();                  // ask the firmware thread to park
+bool firmware_parked();               // has it parked?
+void maybe_park_current_thread();     // called from shims on the fw thread
+
 // --- Panel input injection (thread-safe) ---
 void set_cv_volts(int ch, float v);
 void set_trigger(int idx, bool gate_high);       // idx 0..3
@@ -152,5 +163,26 @@ int32_t adc_read_raw(int adc_channel);          // 16-bit-style raw for scan
 void oled_page(int page, const uint8_t *data);  // SH1106 page landed
 void oled_flush();
 void encoder_service();                          // advance quadrature emulation
+
+// ---------------------------------------------------------------------------
+// Audio (phase 3): the AudioStream engine runs at 44.1 kHz on virtual time.
+// The frontend exchanges samples with the emulated I2S2 codec through two
+// ring buffers of interleaved stereo float frames at 44100 Hz.
+// ---------------------------------------------------------------------------
+static constexpr double kAudioSampleRate = 44100.0;
+
+// Begin firing AudioStream::update_all() every 128 samples of virtual time.
+// Idempotent; called by the I2S shim's update_setup().
+void audio_engine_start();
+bool audio_engine_running();
+
+// Engine side (called from AudioInputI2S2/AudioOutputI2S2 update()):
+void audio_out_push(const int16_t *left, const int16_t *right, int n);  // may pass nullptr for silence
+void audio_in_pull(int16_t *left, int16_t *right, int n);               // zero-fills on underrun
+
+// Frontend side (Rack module / tests), frames at 44100 Hz:
+void audio_out_read(float *lr_interleaved, int frames);  // zero-fills on underrun
+void audio_in_write(const float *lr_interleaved, int frames);
+int audio_out_available();
 
 }  // namespace xemu

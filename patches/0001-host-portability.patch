@@ -303,10 +303,19 @@ index 956a1189..9a002635 100644
  }
  
 diff --git a/software/src/src/extern/dspinst.h b/software/src/src/extern/dspinst.h
-index b9ae9880..dadbb2af 100644
+index b9ae9880..3b76979c 100644
 --- a/software/src/src/extern/dspinst.h
 +++ b/software/src/src/extern/dspinst.h
-@@ -37,7 +37,7 @@ static inline int32_t signed_saturate_rshift(int32_t val, int bits, int rshift)
+@@ -27,6 +27,8 @@
+ #ifndef dspinst_h_
+ #define dspinst_h_
+ 
++#if defined(__ARM_ARCH_7EM__) || defined(KINETISL)
++
+ #include <stdint.h>
+ 
+ // computes limit((val >> rshift), 2**bits)
+@@ -37,7 +39,7 @@ static inline int32_t signed_saturate_rshift(int32_t val, int bits, int rshift)
  	int32_t out;
  	asm volatile("ssat %0, %1, %2, asr %3" : "=r" (out) : "I" (bits), "r" (val), "I" (rshift));
  	return out;
@@ -315,7 +324,7 @@ index b9ae9880..dadbb2af 100644
  	int32_t out, max;
  	out = val >> rshift;
  	max = 1 << (bits - 1);
-@@ -75,7 +75,7 @@ static inline int32_t signed_multiply_32x16b(int32_t a, uint32_t b)
+@@ -75,7 +77,7 @@ static inline int32_t signed_multiply_32x16b(int32_t a, uint32_t b)
  	int32_t out;
  	asm volatile("smulwb %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
  	return out;
@@ -324,7 +333,7 @@ index b9ae9880..dadbb2af 100644
  	return ((int64_t)a * (int16_t)(b & 0xFFFF)) >> 16;
  #endif
  }
-@@ -88,7 +88,7 @@ static inline int32_t signed_multiply_32x16t(int32_t a, uint32_t b)
+@@ -88,7 +90,7 @@ static inline int32_t signed_multiply_32x16t(int32_t a, uint32_t b)
  	int32_t out;
  	asm volatile("smulwt %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
  	return out;
@@ -333,7 +342,7 @@ index b9ae9880..dadbb2af 100644
  	return ((int64_t)a * (int16_t)(b >> 16)) >> 16;
  #endif
  }
-@@ -101,7 +101,7 @@ static inline int32_t multiply_32x32_rshift32(int32_t a, int32_t b)
+@@ -101,7 +103,7 @@ static inline int32_t multiply_32x32_rshift32(int32_t a, int32_t b)
  	int32_t out;
  	asm volatile("smmul %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
  	return out;
@@ -342,7 +351,7 @@ index b9ae9880..dadbb2af 100644
  	return ((int64_t)a * (int64_t)b) >> 32;
  #endif
  }
-@@ -114,7 +114,7 @@ static inline uint32_t multiply_u32xu32_rshift32(uint32_t a, uint32_t b)
+@@ -114,7 +116,7 @@ static inline uint32_t multiply_u32xu32_rshift32(uint32_t a, uint32_t b)
    uint32_t out, tmp;
    asm volatile("umull %0, %1, %2, %3" : "=r" (tmp), "=r" (out) : "r" (a), "r" (b));
    return out;
@@ -351,7 +360,7 @@ index b9ae9880..dadbb2af 100644
    return 0; // TODO....
  #endif
  }
-@@ -127,7 +127,7 @@ static inline int32_t multiply_32x32_rshift32_rounded(int32_t a, int32_t b)
+@@ -127,7 +129,7 @@ static inline int32_t multiply_32x32_rshift32_rounded(int32_t a, int32_t b)
  	int32_t out;
  	asm volatile("smmulr %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
  	return out;
@@ -360,7 +369,7 @@ index b9ae9880..dadbb2af 100644
  	return (((int64_t)a * (int64_t)b) + 0x8000000) >> 32;
  #endif
  }
-@@ -140,7 +140,7 @@ static inline int32_t multiply_accumulate_32x32_rshift32_rounded(int32_t sum, in
+@@ -140,7 +142,7 @@ static inline int32_t multiply_accumulate_32x32_rshift32_rounded(int32_t sum, in
  	int32_t out;
  	asm volatile("smmlar %0, %2, %3, %1" : "=r" (out) : "r" (sum), "r" (a), "r" (b));
  	return out;
@@ -369,7 +378,7 @@ index b9ae9880..dadbb2af 100644
  	return sum + ((((int64_t)a * (int64_t)b) + 0x8000000) >> 32);
  #endif
  }
-@@ -153,7 +153,7 @@ static inline int32_t multiply_subtract_32x32_rshift32_rounded(int32_t sum, int3
+@@ -153,7 +155,7 @@ static inline int32_t multiply_subtract_32x32_rshift32_rounded(int32_t sum, int3
  	int32_t out;
  	asm volatile("smmlsr %0, %2, %3, %1" : "=r" (out) : "r" (sum), "r" (a), "r" (b));
  	return out;
@@ -378,7 +387,7 @@ index b9ae9880..dadbb2af 100644
  	return sum - ((((int64_t)a * (int64_t)b) + 0x8000000) >> 32);
  #endif
  }
-@@ -167,7 +167,7 @@ static inline uint32_t pack_16t_16t(int32_t a, int32_t b)
+@@ -167,7 +169,7 @@ static inline uint32_t pack_16t_16t(int32_t a, int32_t b)
  	int32_t out;
  	asm volatile("pkhtb %0, %1, %2, asr #16" : "=r" (out) : "r" (a), "r" (b));
  	return out;
@@ -387,7 +396,7 @@ index b9ae9880..dadbb2af 100644
  	return (a & 0xFFFF0000) | ((uint32_t)b >> 16);
  #endif
  }
-@@ -180,7 +180,7 @@ static inline uint32_t pack_16t_16b(int32_t a, int32_t b)
+@@ -180,7 +182,7 @@ static inline uint32_t pack_16t_16b(int32_t a, int32_t b)
  	int32_t out;
  	asm volatile("pkhtb %0, %1, %2" : "=r" (out) : "r" (a), "r" (b));
  	return out;
@@ -396,7 +405,7 @@ index b9ae9880..dadbb2af 100644
  	return (a & 0xFFFF0000) | (b & 0x0000FFFF);
  #endif
  }
-@@ -193,7 +193,7 @@ static inline uint32_t pack_16b_16b(int32_t a, int32_t b)
+@@ -193,7 +195,7 @@ static inline uint32_t pack_16b_16b(int32_t a, int32_t b)
  	int32_t out;
  	asm volatile("pkhbt %0, %1, %2, lsl #16" : "=r" (out) : "r" (b), "r" (a));
  	return out;
@@ -405,7 +414,7 @@ index b9ae9880..dadbb2af 100644
  	return (a << 16) | (b & 0x0000FFFF);
  #endif
  }
-@@ -367,6 +367,7 @@ static inline int32_t FRACMUL_SHL(int32_t x, int32_t y, int z)
+@@ -367,6 +369,7 @@ static inline int32_t FRACMUL_SHL(int32_t x, int32_t y, int z)
  #endif
  
  //get Q from PSR
@@ -413,7 +422,7 @@ index b9ae9880..dadbb2af 100644
  static inline uint32_t get_q_psr(void) __attribute__((always_inline, unused));
  static inline uint32_t get_q_psr(void)
  {
-@@ -374,8 +375,12 @@ static inline uint32_t get_q_psr(void)
+@@ -374,8 +377,12 @@ static inline uint32_t get_q_psr(void)
    asm ("mrs %0, APSR" : "=r" (out));
    return (out & 0x8000000)>>27;
  }
@@ -426,15 +435,20 @@ index b9ae9880..dadbb2af 100644
  static inline void clr_q_psr(void) __attribute__((always_inline, unused));
  static inline void clr_q_psr(void)
  {
-@@ -383,6 +388,9 @@ static inline void clr_q_psr(void)
+@@ -383,6 +390,14 @@ static inline void clr_q_psr(void)
    asm ("mov %[t],#0\n"
         "msr APSR_nzcvq,%0\n" : [t] "=&r" (t)::"cc");
  }
 +#else
 +static inline void clr_q_psr(void) {}
 +#endif
++
  
  
++#else
++// Host build (XLOC2 emulator): unified portable intrinsics
++#include <xemu_dspinst.h>
++#endif
  #endif
 diff --git a/software/src/util/util_math.h b/software/src/util/util_math.h
 index 474cff63..45ba5322 100644

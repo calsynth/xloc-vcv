@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <thread>
 
 extern "C" void setup(void);
@@ -30,10 +31,15 @@ const std::string &storage_dir() { return g_storage_dir; }
 // Timers
 // ---------------------------------------------------------------------------
 int Clock::add_timer(std::function<void()> fn, uint64_t period_us) {
+  return add_timer_ns(std::move(fn), period_us * 1000ull);
+}
+
+int Clock::add_timer_ns(std::function<void()> fn, uint64_t period_ns) {
+  std::lock_guard<std::recursive_mutex> lk(isr_mutex);
   for (int i = 0; i < kMaxTimers; ++i) {
     if (!timers[i].active) {
       timers[i].fn = std::move(fn);
-      timers[i].period_ns = period_us * 1000ull;
+      timers[i].period_ns = period_ns;
       timers[i].next_due_ns = now_ns.load() + timers[i].period_ns;
       timers[i].active = true;
       return i;
@@ -89,9 +95,37 @@ bool booted() { return g_booted.load(); }
 
 static std::atomic<bool> g_boot_started{false};
 
+// --- Firmware-thread parking (see header) -------------------------------
+static std::atomic<bool> g_park_req{false};
+static std::atomic<bool> g_parked{false};
+
+void request_park() { g_park_req.store(true); }
+bool firmware_parked() { return g_parked.load(); }
+
+void maybe_park_current_thread() {
+  if (!g_park_req.load()) return;
+  g_parked.store(true);
+  // Park forever; process exit reaps the detached thread.
+  for (;;) std::this_thread::sleep_for(std::chrono::seconds(1));
+}
+
+static void park_at_exit() {
+  request_park();
+  // Keep virtual time moving so the loop thread reaches a park point even if
+  // it is waiting on virtual time (delay()) or a display frame drain.
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (!firmware_parked() && std::chrono::steady_clock::now() < deadline) {
+    clock().step(1000000ull);
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  }
+}
+
 void boot_async() {
   if (g_boot_started.exchange(true)) return;
   g_loop_run = true;
+  // Registered after firmware globals are constructed, so this runs before
+  // their destructors during exit teardown.
+  std::atexit(park_at_exit);
   g_loop_thread = std::thread([] {
     setup();
     g_booted = true;
@@ -270,5 +304,94 @@ void oled_page(int page, const uint8_t *data) {
 }
 
 void oled_flush() { state().fb_generation.fetch_add(1); }
+
+// ---------------------------------------------------------------------------
+// Audio engine clocking + I2S rings
+// ---------------------------------------------------------------------------
+extern "C" void xemu_audio_update_all();  // defined via AudioStream (below)
+
+namespace {
+// Simple ring of interleaved stereo int16 frames @44.1k. All access happens
+// under the ISR mutex (engine side runs inside timers; frontend side locks).
+struct AudioRing {
+  static constexpr int kCap = 16384;  // frames (~0.37 s)
+  int16_t l[kCap];
+  int16_t r[kCap];
+  int head = 0, tail = 0, count = 0;
+
+  void push(int16_t sl, int16_t sr) {
+    if (count == kCap) {  // overrun: drop oldest
+      tail = (tail + 1) % kCap;
+      --count;
+    }
+    l[head] = sl;
+    r[head] = sr;
+    head = (head + 1) % kCap;
+    ++count;
+  }
+  bool pop(int16_t &sl, int16_t &sr) {
+    if (!count) return false;
+    sl = l[tail];
+    sr = r[tail];
+    tail = (tail + 1) % kCap;
+    --count;
+    return true;
+  }
+};
+
+AudioRing g_out_ring;  // engine -> frontend
+AudioRing g_in_ring;   // frontend -> engine
+std::atomic<bool> g_audio_running{false};
+}  // namespace
+
+bool audio_engine_running() { return g_audio_running.load(); }
+
+void audio_engine_start() {
+  if (g_audio_running.exchange(true)) return;
+  // 128 samples @44100 Hz = 2902494.33 ns; sub-ppm rounding is absorbed by
+  // the rings (the frontend clock is authoritative).
+  clock().add_timer_ns([] { xemu_audio_update_all(); }, 2902494ull);
+}
+
+void audio_out_push(const int16_t *left, const int16_t *right, int n) {
+  std::lock_guard<std::recursive_mutex> lk(clock().isr_mutex);
+  for (int i = 0; i < n; ++i)
+    g_out_ring.push(left ? left[i] : 0, right ? right[i] : 0);
+}
+
+void audio_in_pull(int16_t *left, int16_t *right, int n) {
+  std::lock_guard<std::recursive_mutex> lk(clock().isr_mutex);
+  for (int i = 0; i < n; ++i) {
+    int16_t sl = 0, sr = 0;
+    g_in_ring.pop(sl, sr);
+    if (left) left[i] = sl;
+    if (right) right[i] = sr;
+  }
+}
+
+void audio_out_read(float *lr, int frames) {
+  std::lock_guard<std::recursive_mutex> lk(clock().isr_mutex);
+  for (int i = 0; i < frames; ++i) {
+    int16_t sl = 0, sr = 0;
+    g_out_ring.pop(sl, sr);
+    lr[i * 2] = (float)sl / 32768.f;
+    lr[i * 2 + 1] = (float)sr / 32768.f;
+  }
+}
+
+void audio_in_write(const float *lr, int frames) {
+  std::lock_guard<std::recursive_mutex> lk(clock().isr_mutex);
+  for (int i = 0; i < frames; ++i) {
+    float fl = lr[i * 2], fr = lr[i * 2 + 1];
+    if (fl > 1.f) fl = 1.f; else if (fl < -1.f) fl = -1.f;
+    if (fr > 1.f) fr = 1.f; else if (fr < -1.f) fr = -1.f;
+    g_in_ring.push((int16_t)(fl * 32767.f), (int16_t)(fr * 32767.f));
+  }
+}
+
+int audio_out_available() {
+  std::lock_guard<std::recursive_mutex> lk(clock().isr_mutex);
+  return g_out_ring.count;
+}
 
 }  // namespace xemu

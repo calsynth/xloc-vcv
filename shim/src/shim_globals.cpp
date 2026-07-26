@@ -34,18 +34,7 @@ struct BrkvalInit {
 } brkval_init;
 }  // namespace
 
-// AudioStream statics + block pool
-uint16_t AudioStream::memory_used = 0;
-uint16_t AudioStream::memory_used_max = 0;
-uint16_t AudioStream::cpu_cycles_total = 0;
-uint16_t AudioStream::cpu_cycles_total_max = 0;
-
-audio_block_t *AudioStream::allocate() {
-  audio_block_t *b = new audio_block_t();
-  b->ref_count = 1;
-  return b;
-}
-void AudioStream::release(audio_block_t *block) { delete block; }
+// (AudioStream engine statics live in shim_audiostream.cpp)
 
 // Teensy 4.1 PSRAM globals
 extern "C" {
