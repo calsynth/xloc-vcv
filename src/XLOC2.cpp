@@ -280,6 +280,11 @@ struct XlocEncoder : OpaqueWidget {
   bool dragged = false;
   bool shiftHeld = false;
   bool altClicked = false;
+  // Right-button drag = push+turn (modifier-free; some macOS setups never
+  // deliver modifier bits to the plugin, killing shift+drag).
+  bool rightHeld = false;
+  bool rightTurning = false;
+  float rightAccum = 0.f;
 
   static constexpr float kPxPerDetent = 12.f;
 
@@ -324,12 +329,76 @@ struct XlocEncoder : OpaqueWidget {
         altClicked = false;
       }
     }
-    // Right-click = long press (1.5 s virtual)
-    if (e.button == GLFW_MOUSE_BUTTON_RIGHT && e.action == GLFW_PRESS) {
-      if (module && module->isOwner) module->clickEncoder(which, 1600.f);
+    // Right button: drag = push+turn; plain click (no drag) = long press
+    // (1.6 s virtual), fired on release.
+    if (e.button == GLFW_MOUSE_BUTTON_RIGHT) {
+      if (e.action == GLFW_PRESS) {
+        rightHeld = true;
+        rightTurning = false;
+        rightAccum = 0.f;
+      } else if (e.action == GLFW_RELEASE) {
+        if (module && module->isOwner) {
+          if (rightTurning) {
+            xemu::press_encoder(which, false);  // end push+turn
+            module->noteEncoderActivity();
+          } else if (rightHeld) {
+            module->clickEncoder(which, 1600.f);  // long press
+          }
+        }
+        rightHeld = false;
+        rightTurning = false;
+      }
       e.consume(this);
     }
     OpaqueWidget::onButton(e);
+  }
+
+  // Rack only runs its drag machinery for the left button, so track
+  // right-button drags from hover movement while the button is down.
+  void onHover(const HoverEvent &e) override {
+    if (rightHeld && module && module->isOwner) {
+      float zoom = getAbsoluteZoom();
+      rightAccum += -e.mouseDelta.y / zoom;
+      int detents = (int)(rightAccum / kPxPerDetent);
+      if (detents != 0) {
+        rightAccum -= detents * kPxPerDetent;
+        if (!rightTurning) {
+          rightTurning = true;
+          xemu::press_encoder(which, true);  // push starts with first detent
+        }
+        angle += detents * 0.30f;
+        xemu::turn_encoder(which, detents);
+        module->noteEncoderActivity();
+      }
+      e.consume(this);
+      return;
+    }
+    OpaqueWidget::onHover(e);
+  }
+
+  void onLeave(const LeaveEvent &e) override {
+    // Cursor left mid right-drag: never leave the virtual push stuck down.
+    if (rightTurning && module && module->isOwner) {
+      xemu::press_encoder(which, false);
+      module->noteEncoderActivity();
+    }
+    rightHeld = false;
+    rightTurning = false;
+    OpaqueWidget::onLeave(e);
+  }
+
+  // 'D' while hovering an encoder = dual press (keyboard experiment: tells
+  // us whether key events reach the plugin even though mouse modifiers
+  // don't). Consumed here, so Rack never sees the keystroke.
+  void onHoverKey(const HoverKeyEvent &e) override {
+    INFO("XLOC2 enc %d hoverKey key=%d action=%d mods=0x%x", which, e.key,
+         e.action, e.mods);
+    if (e.key == GLFW_KEY_D && e.action == GLFW_PRESS) {
+      if (module && module->isOwner) module->dualClickEncoders();
+      e.consume(this);
+      return;
+    }
+    OpaqueWidget::onHoverKey(e);
   }
 
   void onDragMove(const DragMoveEvent &e) override {
@@ -353,7 +422,7 @@ struct XlocEncoder : OpaqueWidget {
 
     // pressed indicator: amber ring while the emulated push is active
     // (shift+drag, alt+click dual press, or a timed click in flight)
-    bool pressed = shiftHeld || (module && module->encClickActive[which]);
+    bool pressed = shiftHeld || rightTurning || (module && module->encClickActive[which]);
     if (pressed) {
       nvgBeginPath(args.vg);
       nvgCircle(args.vg, cx, cy, r + 1.5f);
@@ -581,8 +650,8 @@ struct XLOC2Widget : ModuleWidget {
       menu->addChild(createMenuLabel(xemu::booted() ? "Firmware: running" : "Firmware: booting..."));
       menu->addChild(createMenuItem("Press both encoders", "",
                                     [m]() { m->dualClickEncoders(); }));
-      menu->addChild(createMenuLabel("Encoder: shift+drag = push+turn, right-click = long press"));
-      menu->addChild(createMenuLabel("Encoder: alt/option+click = press both encoders"));
+      menu->addChild(createMenuLabel("Encoder: right-DRAG = push+turn, right-click = long press"));
+      menu->addChild(createMenuLabel("Encoder: hover + D key = press both encoders"));
       menu->addChild(createMenuLabel("Button: right-click = latch held (for button+encoder combos)"));
     }
   }
