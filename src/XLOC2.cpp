@@ -222,8 +222,6 @@ std::atomic<XLOC2Module *> XLOC2Module::owner{nullptr};
 // ---------------------------------------------------------------------------
 struct OledWidget : TransparentWidget {
   XLOC2Module *module = nullptr;
-  int img = -1;
-  uint8_t rgba[xemu::kFBWidth * xemu::kFBHeight * 4];
 
   void drawLayer(const DrawArgs &args, int layer) override {
     if (layer != 1) return;  // self-illuminating layer (glows in dark rooms)
@@ -232,31 +230,30 @@ struct OledWidget : TransparentWidget {
     bool live = module && module->isOwner;
     if (live) xemu::get_framebuffer(fb);
 
-    for (int y = 0; y < xemu::kFBHeight; ++y) {
-      for (int x = 0; x < xemu::kFBWidth; ++x) {
-        int page = y >> 3, bit = y & 7;
-        bool on = live && ((fb[page * 128 + x] >> bit) & 1);
-        uint8_t *p = &rgba[(y * xemu::kFBWidth + x) * 4];
-        if (on) {
-          p[0] = 0xCF; p[1] = 0xEA; p[2] = 0xFF; p[3] = 0xFF;  // cool white
-        } else {
-          p[0] = 0x0A; p[1] = 0x0E; p[2] = 0x14; p[3] = 0xFF;  // near-black
-        }
-      }
-    }
-
-    if (img < 0) {
-      img = nvgCreateImageRGBA(args.vg, xemu::kFBWidth, xemu::kFBHeight,
-                               NVG_IMAGE_NEAREST, rgba);
-    } else {
-      nvgUpdateImage(args.vg, img, rgba);
-    }
-
-    NVGpaint paint = nvgImagePattern(args.vg, 0, 0, box.size.x, box.size.y, 0, img, 1.f);
+    // Panel background
     nvgBeginPath(args.vg);
     nvgRoundedRect(args.vg, 0, 0, box.size.x, box.size.y, 2.f);
-    nvgFillPaint(args.vg, paint);
+    nvgFillColor(args.vg, nvgRGB(0x0A, 0x0E, 0x14));
     nvgFill(args.vg);
+
+    // Lit pixels as vector rects: crisp at every zoom (a scaled NEAREST
+    // texture gets unevenly-sized pixels at fractional zooms — issue #1),
+    // with a hint of pixel grid like the real OLED.
+    if (live) {
+      const float cw = box.size.x / (float)xemu::kFBWidth;
+      const float ch = box.size.y / (float)xemu::kFBHeight;
+      const float pw = cw * 0.92f, ph = ch * 0.92f;
+      nvgBeginPath(args.vg);
+      for (int y = 0; y < xemu::kFBHeight; ++y) {
+        int page = y >> 3, bit = y & 7;
+        for (int x = 0; x < xemu::kFBWidth; ++x) {
+          if ((fb[page * 128 + x] >> bit) & 1)
+            nvgRect(args.vg, x * cw, y * ch, pw, ph);
+        }
+      }
+      nvgFillColor(args.vg, nvgRGB(0xCF, 0xEA, 0xFF));  // cool white
+      nvgFill(args.vg);
+    }
 
     // subtle glow
     NVGpaint glow = nvgBoxGradient(args.vg, 0, 0, box.size.x, box.size.y, 4.f, 14.f,
@@ -286,8 +283,46 @@ struct XlocEncoder : OpaqueWidget {
   bool rightHeld = false;
   bool rightTurning = false;
   float rightAccum = 0.f;
+  // Rotary knob modes: virtual pointer position (widget px, accumulated
+  // from drag deltas, seeded from the click position) and angle accumulator.
+  Vec dragPos;
+  float angleAccum = 0.f;
 
   static constexpr float kPxPerDetent = 12.f;
+  // Hardware encoders are ~24 detents/revolution: 15 degrees per detent.
+  static constexpr float kRadPerDetent = 2.f * (float)M_PI / 24.f;
+
+  bool rotaryMode() const {
+    return settings::knobMode == settings::KNOB_MODE_ROTARY_ABSOLUTE ||
+           settings::knobMode == settings::KNOB_MODE_ROTARY_RELATIVE;
+  }
+
+  // Consume a drag delta (widget px) and return whole detents, honoring the
+  // user's knob mode. `accum` is the linear accumulator to use.
+  int detentsFromDelta(Vec deltaPx, float &accum) {
+    if (rotaryMode()) {
+      Vec c = box.size.div(2.f);
+      Vec v0 = dragPos.minus(c);
+      dragPos = dragPos.plus(deltaPx);
+      Vec v1 = dragPos.minus(c);
+      // Too close to the hub for a stable angle: ignore until it moves out.
+      if (v0.norm() < 4.f || v1.norm() < 4.f) return 0;
+      float cross = v0.x * v1.y - v0.y * v1.x;
+      float dot = v0.x * v1.x + v0.y * v1.y;
+      angleAccum += std::atan2(cross, dot);  // clockwise = positive (y down)
+      int detents = (int)(angleAccum / kRadPerDetent);
+      angleAccum -= detents * kRadPerDetent;
+      return detents;
+    }
+    // Linear modes: vertical drag; scale with the user's knob sensitivity
+    // (0.001 is Rack's default).
+    float sens = settings::knobLinearSensitivity / 0.001f;
+    if (sens <= 0.f) sens = 1.f;
+    accum += -deltaPx.y * sens;
+    int detents = (int)(accum / kPxPerDetent);
+    accum -= detents * kPxPerDetent;
+    return detents;
+  }
 
   void onButton(const ButtonEvent &e) override {
     INFO("XLOC2 enc %d btn=%d action=%d mods=0x%x", which, e.button, e.action,
@@ -298,15 +333,25 @@ struct XlocEncoder : OpaqueWidget {
       e.consume(this);
       return;
     }
+    if (e.action == GLFW_PRESS &&
+        (e.button == GLFW_MOUSE_BUTTON_LEFT || e.button == GLFW_MOUSE_BUTTON_RIGHT)) {
+      dragPos = e.pos;  // seed rotary tracking at the click position
+      angleAccum = 0.f;
+    }
     if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
       if (e.action == GLFW_PRESS) {
         dragged = false;
-        int mods = e.mods & RACK_MOD_MASK;
+        // On macOS (observed on 26.1 / Rack 2.6.6) ButtonEvent::mods
+        // arrives empty, while the live window modifier state is correct —
+        // stock Rack knobs work because they query the latter. Prefer the
+        // live state, OR the event field in case other platforms differ.
+        int mods = (e.mods | APP->window->getMods()) & RACK_MOD_MASK;
+        INFO("XLOC2 enc %d leftclick emods=0x%x livemods=0x%x", which,
+             e.mods, APP->window->getMods());
         shiftHeld = mods == GLFW_MOD_SHIFT;
-        // Alt/Option+click or Cmd/Ctrl+click: dual encoder press. Accept
-        // either modifier (and tolerate extra bits) — we've seen macOS
-        // setups where Option never reaches the widget.
-        altClicked = (mods & (GLFW_MOD_ALT | GLFW_MOD_SUPER | GLFW_MOD_CONTROL)) != 0;
+        // Alt/Option+click or Cmd+click: dual encoder press. (Ctrl+click
+        // never arrives on macOS — the OS converts it to a right-click.)
+        altClicked = (mods & (GLFW_MOD_ALT | GLFW_MOD_SUPER)) != 0;
         if (module && module->isOwner) {
           if (altClicked) {
             // Alt/Option+click: press BOTH encoders together (the hardware
@@ -361,18 +406,17 @@ struct XlocEncoder : OpaqueWidget {
 
   void onDragMove(const DragMoveEvent &e) override {
     float zoom = getAbsoluteZoom();
-    float d = -e.mouseDelta.y / zoom;
+    Vec deltaPx = e.mouseDelta.div(zoom);
     // Any encoder handling counts as activity (keeps button latches alive
     // even between detents while the hand is on the encoder).
-    if (module && module->isOwner && d != 0.f) module->noteEncoderActivity();
+    if (module && module->isOwner && (deltaPx.x != 0.f || deltaPx.y != 0.f))
+      module->noteEncoderActivity();
 
     if (e.button == GLFW_MOUSE_BUTTON_RIGHT) {
       // Right-drag = push+turn: the virtual push engages with the first
       // detent and holds until the button is released.
-      rightAccum += d;
-      int detents = (int)(rightAccum / kPxPerDetent);
+      int detents = detentsFromDelta(deltaPx, rightAccum);
       if (detents != 0) {
-        rightAccum -= detents * kPxPerDetent;
         angle += detents * 0.30f;
         if (module && module->isOwner) {
           if (!rightTurning) {
@@ -385,10 +429,8 @@ struct XlocEncoder : OpaqueWidget {
       return;
     }
 
-    dragAccum += d;
-    int detents = (int)(dragAccum / kPxPerDetent);
+    int detents = detentsFromDelta(deltaPx, dragAccum);
     if (detents != 0) {
-      dragAccum -= detents * kPxPerDetent;
       dragged = true;
       angle += detents * 0.30f;
       if (module && module->isOwner) xemu::turn_encoder(which, detents);
@@ -409,6 +451,29 @@ struct XlocEncoder : OpaqueWidget {
       rightTurning = false;
     }
     OpaqueWidget::onDragEnd(e);
+  }
+
+  // Mouse wheel = turn (issue #3), following Rack convention: only when
+  // "Scroll wheel knob control" is enabled in the View menu, so scrolling
+  // still pans the rack otherwise. One detent per wheel notch (Rack
+  // reports 50 units/notch); trackpad deltas accumulate smoothly.
+  float scrollAccum = 0.f;
+  void onHoverScroll(const HoverScrollEvent &e) override {
+    if (!settings::knobScroll) {
+      OpaqueWidget::onHoverScroll(e);
+      return;
+    }
+    scrollAccum += e.scrollDelta.y;
+    int detents = (int)(scrollAccum / 50.f);
+    if (detents != 0) {
+      scrollAccum -= detents * 50.f;
+      angle += detents * 0.30f;
+      if (module && module->isOwner) {
+        xemu::turn_encoder(which, detents);
+        module->noteEncoderActivity();
+      }
+    }
+    e.consume(this);
   }
 
   void draw(const DrawArgs &args) override {
