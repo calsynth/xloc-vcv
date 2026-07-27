@@ -19,9 +19,10 @@ jobs:
           - name: mac-arm64
             os: macos-14
             sdk: mac-arm64
-          - name: mac-x64
-            os: macos-13
-            sdk: mac-x64
+          # mac-x64 removed: GitHub's Intel (macos-13) runners are deprecated
+          # and jobs queue indefinitely. The VCV Library build farm produces
+          # the Intel mac build itself at submission time; our own x64
+          # artifact was only ever a convenience.
           - name: win-x64
             os: windows-latest
             sdk: win-x64
