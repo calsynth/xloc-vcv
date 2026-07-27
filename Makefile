@@ -18,10 +18,12 @@ FLAGS += -DARDUINO_TEENSY41 -D__IMXRT1062__ -DARDUINO=10819 -DTEENSYDUINO=159 \
 EXTRA_CXXFLAGS += -std=gnu++17 -Wno-unused-parameter \
                   -Wno-unused-variable -Wno-sign-compare
 
-# macOS: Rack targets 10.9, but the firmware uses std::variant/std::get whose
-# libc++ availability annotations demand 10.13+. Every Mac that can run Rack 2
-# has the needed runtime; disable the annotations. Inert on GCC/libstdc++.
-FLAGS += -D_LIBCPP_DISABLE_AVAILABILITY
+# macOS: we require 10.15+ (set below, after plugin.mk). Rack's default
+# target is 10.9, which forced us to disable libc++ availability checks and
+# aligned-allocation guards — with the honest 10.15 floor those hacks are
+# gone and machines older than Catalina get a clean load failure from Rack
+# instead of undefined behavior at runtime (reported as hangs on old Intel
+# Macs). Apple Silicon is unaffected (arm64 implies macOS 11+).
 
 # Plugin sources
 SOURCES += src/plugin.cpp src/XLOC2.cpp
@@ -54,11 +56,13 @@ DISTRIBUTABLES += res
 
 include $(RACK_DIR)/plugin.mk
 
-# clang only (Apple or osxcross): allow C++17 aligned new/delete despite
-# Rack's -mmacosx-version-min=10.9 (runtime support exists on any macOS that
-# can run Rack 2). GCC doesn't know this flag and doesn't need it.
-ifneq ($(findstring clang,$(shell $(CXX) --version 2>/dev/null)),)
-FLAGS += -faligned-allocation
+# macOS floor: 10.15 (Catalina). Appended after plugin.mk so it overrides
+# Rack's -mmacosx-version-min=10.9 (the last version-min flag wins), for
+# both compile and link.
+ifdef ARCH_MAC
+FLAGS += -mmacosx-version-min=10.15
+CXXFLAGS += -mmacosx-version-min=10.15
+LDFLAGS += -mmacosx-version-min=10.15
 endif
 
 .PHONY: apply-patches
