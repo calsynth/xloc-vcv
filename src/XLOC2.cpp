@@ -556,10 +556,22 @@ struct XlocButton : OpaqueWidget {
     OpaqueWidget::step();
   }
 
+  void toggleLatch() {
+    latched = !latched;
+    if (latched) latchArmNs = xemu::clock().now_ns.load();
+    setPin(latched);
+  }
+
   void onButton(const ButtonEvent &e) override {
     if (e.button == GLFW_MOUSE_BUTTON_LEFT) {
       if (e.action == GLFW_PRESS) {
-        if (latched) {
+        // Ctrl/Cmd+click = latch toggle on every platform (on macOS the OS
+        // converts ctrl+click into a right-click before we see it, so this
+        // matches that behavior explicitly on Linux/Windows).
+        int mods = (e.mods | APP->window->getMods()) & RACK_MOD_MASK;
+        if (mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER)) {
+          toggleLatch();
+        } else if (latched) {
           latched = false;  // click releases a latch
           setPin(false);
         } else {
@@ -575,9 +587,7 @@ struct XlocButton : OpaqueWidget {
       }
     }
     if (e.button == GLFW_MOUSE_BUTTON_RIGHT && e.action == GLFW_PRESS) {
-      latched = !latched;
-      if (latched) latchArmNs = xemu::clock().now_ns.load();
-      setPin(latched);
+      toggleLatch();
       e.consume(this);
     }
     OpaqueWidget::onButton(e);
@@ -712,7 +722,7 @@ struct XLOC2Widget : ModuleWidget {
                                     [m]() { m->dualClickEncoders(); }));
       menu->addChild(createMenuLabel("Encoder: right-DRAG = push+turn, right-click = long press"));
       menu->addChild(createMenuLabel("Encoder: hover + D key = press both encoders"));
-      menu->addChild(createMenuLabel("Button: right-click = latch held (for button+encoder combos)"));
+      menu->addChild(createMenuLabel("Button: right-click or ctrl+click = latch held (for combos)"));
     }
   }
 };
